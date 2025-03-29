@@ -17,8 +17,7 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write",
-    "lint-staged": "lint-staged",
-    "postinstall": "husky install"
+    "lint-staged": "lint-staged"
   },
   "keywords": [
     "playwright",
