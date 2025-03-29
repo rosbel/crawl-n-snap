@@ -19,6 +19,7 @@ A CLI tool for taking website screenshots at various resolutions using Playwrigh
 ## Installation
 
 ```bash
+# Install globally
 npm install -g @rosbel/crawl-n-snap
 
 # Or using pnpm
@@ -28,13 +29,21 @@ pnpm add -g @rosbel/crawl-n-snap
 Browser binaries need to be installed (if not already present):
 
 ```bash
-pnpx playwright install
+npx playwright install
 ```
 
 ## Usage
 
+You can use it directly if installed globally:
+
 ```bash
 crawl-n-snap https://example.com [options]
+```
+
+Or run it with npx without installing:
+
+```bash
+npx @rosbel/crawl-n-snap https://example.com [options]
 ```
 
 ### Options
@@ -60,31 +69,31 @@ Options:
 #### Take a screenshot at the default resolution (1920x1080)
 
 ```bash
-crawl-n-snap https://example.com
+npx @rosbel/crawl-n-snap https://example.com
 ```
 
 #### Take screenshots at multiple custom resolutions
 
 ```bash
-crawl-n-snap https://example.com -r 1920x1080 -r 1366x768 -r 375x667
+npx @rosbel/crawl-n-snap https://example.com -r 1920x1080 -r 1366x768 -r 375x667
 ```
 
 #### Use preset device resolutions
 
 ```bash
-crawl-n-snap https://example.com --desktop --mobile
+npx @rosbel/crawl-n-snap https://example.com --desktop --mobile
 ```
 
 #### Crawl a website and take screenshots of all linked pages
 
 ```bash
-crawl-n-snap https://example.com --crawl --max-pages 10
+npx @rosbel/crawl-n-snap https://example.com --crawl --max-pages 10
 ```
 
 #### Use a different browser (Firefox) and custom output directory
 
 ```bash
-crawl-n-snap https://example.com --browser firefox --output ./screenshots
+npx @rosbel/crawl-n-snap https://example.com --browser firefox --output ./screenshots
 ```
 
 ## Output Structure
@@ -112,7 +121,7 @@ To set up automatic publishing:
 
 ## Contributors
 
-- [Rosbel Sanchez](https://github.com/rosbel) - Project creator
+- [Rosbel](https://github.com/rosbel) - Project creator
 - [Claude AI](https://claude.ai/code) - Development support & documentation
 
 ## License
