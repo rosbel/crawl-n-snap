@@ -1,9 +1,10 @@
 {
   "name": "@rosbel/crawl-n-snap",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "homepage": "https://github.com/rosbel/crawl-n-snap",
   "bin": {
     "crawl-n-snap": "./dist/index.js"
   },
