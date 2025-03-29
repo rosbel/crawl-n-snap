@@ -68,6 +68,7 @@ Options:
   -b, --browser <n>       Browser to use (chromium, firefox, webkit) (default: "chromium")
   -c, --crawl             Enable crawling of all relative links on the website
   -p, --max-pages <n>     Maximum number of pages to crawl (only used with --crawl) (default: 50)
+  -t, --timeout <ms>      Early screenshot timeout in milliseconds (default: 5000, max Playwright timeout: 30000)
   -V, --version           Output the version number
   -h, --help              Display help for command
 ```
@@ -107,6 +108,14 @@ npx @rosbel/crawl-n-snap https://example.com --crawl --max-pages 10
 ```bash
 npx @rosbel/crawl-n-snap https://example.com --browser firefox --output ./screenshots
 ```
+
+#### Set a custom early screenshot timeout (5 seconds)
+
+```bash
+npx @rosbel/crawl-n-snap https://example.com --timeout 5000
+```
+
+Note: The tool will attempt to take a screenshot after the specified timeout even if the page is still loading. Playwright has a fixed maximum timeout of 30 seconds for network idle.
 
 ## Output Structure
 
