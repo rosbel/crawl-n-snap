@@ -29,7 +29,11 @@ pnpm add -g @rosbel/crawl-n-snap
 Browser binaries need to be installed (if not already present):
 
 ```bash
+# Using npm
 npx playwright install
+
+# Using pnpm
+pnpx playwright install
 ```
 
 ## Usage
@@ -40,10 +44,14 @@ You can use it directly if installed globally:
 crawl-n-snap https://example.com [options]
 ```
 
-Or run it with npx without installing:
+Or run it without installing:
 
 ```bash
+# Using npm
 npx @rosbel/crawl-n-snap https://example.com [options]
+
+# Using pnpm
+pnpx @rosbel/crawl-n-snap https://example.com [options]
 ```
 
 ### Options
@@ -69,7 +77,11 @@ Options:
 #### Take a screenshot at the default resolution (1920x1080)
 
 ```bash
+# npm
 npx @rosbel/crawl-n-snap https://example.com
+
+# pnpm
+pnpx @rosbel/crawl-n-snap https://example.com
 ```
 
 #### Take screenshots at multiple custom resolutions
