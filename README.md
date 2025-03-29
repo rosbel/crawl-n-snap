@@ -110,6 +110,11 @@ To set up automatic publishing:
 1. Generate an npm token with publishing rights
 2. Add the token as a repository secret named `NPM_TOKEN` in your GitHub repository settings
 
+## Contributors
+
+- [Rosbel Sanchez](https://github.com/rosbel) - Project creator
+- [Claude AI](https://claude.ai/code) - Development support & documentation
+
 ## License
 
 MIT
