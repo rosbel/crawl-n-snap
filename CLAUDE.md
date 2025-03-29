@@ -5,6 +5,10 @@
 - `pnpm run build`: Compile TypeScript to JavaScript
 - `pnpm run dev`: Start with live reload (`tsx watch src/index.ts -- [args]`)
 - `pnpm run start`: Run compiled JS (`node dist/index.js [args]`)
+- `pnpm test`: Run unit tests
+- `pnpm test:watch`: Run unit tests in watch mode
+- `pnpm lint`: Run ESLint on the codebase
+- `pnpm lint:fix`: Fix automatically fixable lint issues
 - `pnpx playwright install`: Install browser binaries if needed
 
 ## Coding Standards

@@ -12,7 +12,10 @@
     "dev": "tsx watch src/index.ts --",
     "start": "node dist/index.js",
     "prepare": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix"
   },
   "keywords": [
     "playwright",
@@ -31,8 +34,13 @@
   "devDependencies": {
     "@types/commander": "^2.12.2",
     "@types/node": "^20.12.7",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.2.1",
+    "eslint": "^8.57.0",
     "tsx": "^4.7.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^1.2.1"
   },
   "files": [
     "dist/**/*",
