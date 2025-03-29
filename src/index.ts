@@ -17,6 +17,7 @@ interface CliOptions {
     browser: SupportedBrowser;
     crawl: boolean;
     maxPages: number;
+    timeout: number;
 }
 
 interface Resolution {
@@ -149,6 +150,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     console.log(`Target URL: ${targetUrl}`);
     console.log(`Browser: ${options.browser}`);
     console.log(`Output Directory: ${path.resolve(options.output)}`);
+    console.log(`Early Screenshot Timeout: ${options.timeout}ms, Playwright Max Timeout: 30000ms`);
     console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
     if (options.crawl) {
         console.log(`Max Pages: ${options.maxPages}`);
@@ -224,8 +226,26 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
             try {
                 // Navigate to the URL only once
                 console.log(`- Navigating to ${normalizedUrl}...`);
-                await page.goto(normalizedUrl, {waitUntil: 'networkidle'});
-                console.log(`- Navigation successful.`);
+                try {
+                    // Use fixed 30 second timeout for Playwright
+                    const navigationPromise = page.goto(normalizedUrl, {
+                        waitUntil: 'networkidle',
+                        timeout: 30000 // Fixed Playwright timeout
+                    });
+
+                    // Race between networkidle and user-specified timeout
+                    await Promise.race([
+                        navigationPromise, 
+                        new Promise((resolve) => setTimeout(resolve, options.timeout))
+                    ]);
+                    console.log(`- Navigation complete (either networkidle or ${options.timeout}ms timeout reached).`);
+                } catch (error: any) {
+                    if (error.name === 'TimeoutError') {
+                        console.log(`- Playwright navigation timeout reached (30000ms). Continuing with screenshot.`);
+                    } else {
+                        throw error; // Rethrow other errors
+                    }
+                }
                 
                 // Process each resolution for the current URL without re-navigating
                 for (const resolution of parsedResolutions) {
@@ -349,6 +369,13 @@ program
         }
         return parsed;
     }, 50) // Default to 50 pages max
+    .option('-t, --timeout <ms>', 'Early screenshot timeout in milliseconds (defaults to 5000)', (value) => {
+        const parsed = parseInt(value, 10);
+        if (isNaN(parsed) || parsed <= 0) {
+            throw new Error('Timeout must be a positive number in milliseconds');
+        }
+        return parsed;
+    }, 5000)
     .action(async (url: string, options: { 
         resolution: Resolution[]; 
         output: string; 
@@ -357,6 +384,7 @@ program
         maxPages: number;
         desktop: boolean;
         mobile: boolean;
+        timeout: number;
     }) => {
         // Handle device presets
         let resolutions = [...options.resolution]; // Start with custom resolutions
@@ -380,7 +408,8 @@ program
             output: options.output,
             browser: options.browser,
             crawl: options.crawl,
-            maxPages: options.maxPages
+            maxPages: options.maxPages,
+            timeout: options.timeout
         };
 
         try {
