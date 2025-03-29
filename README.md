@@ -9,10 +9,12 @@
 
 A CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.
 
-![npm](https://img.shields.io/npm/v/@rosbel/crawl-n-snap)
-![CI Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fci.yml?label=tests)
-![Publish Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml?label=publish)
-![License](https://img.shields.io/github/license/rosbel/crawl-n-snap)
+[![npm version][npm-v-src]][npm-v-href]
+[![npm downloads][npm-dm-src]][npm-dm-href]
+[![package phobia][packagephobia-src]][packagephobia-href]
+[![ci status][ci-status-src]][ci-status-href]
+[![publish status][publish-status-src]][publish-status-href]
+[![license][license-src]][license-href]
 
 ## Features
 
@@ -193,3 +195,18 @@ To set up automatic publishing:
 ## License
 
 MIT
+
+<!-- Refs -->
+
+[npm-v-src]: https://flat.badgen.net/npm/v/@rosbel/crawl-n-snap/latest
+[npm-v-href]: https://npmjs.com/package/@rosbel/crawl-n-snap
+[npm-dm-src]: https://flat.badgen.net/npm/dm/@rosbel/crawl-n-snap
+[npm-dm-href]: https://npmjs.com/package/rosbel/crawl-n-snap
+[packagephobia-src]: https://flat.badgen.net/packagephobia/install/@rosbel/crawl-n-snap
+[packagephobia-href]: https://packagephobia.now.sh/result?p=@rosbel/crawl-n-snap
+[ci-status-src]: https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fci.yml?label=tests
+[ci-status-href]: https://github.com/rosbel/crawl-n-snap/actions/workflows/ci.yml
+[publish-status-src]: https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml?label=publish
+[publish-status-href]: https://github.com/rosbel/crawl-n-snap/actions/workflows/npm-publish.yml
+[license-src]: https://img.shields.io/github/license/rosbel/crawl-n-snap
+[license-href]: https://github.com/rosbel/crawl-n-snap/blob/main/LICENSE
