@@ -200,8 +200,8 @@ MIT
 
 [npm-v-src]: https://flat.badgen.net/npm/v/@rosbel/crawl-n-snap/latest
 [npm-v-href]: https://npmjs.com/package/@rosbel/crawl-n-snap
-[npm-dm-src]: https://flat.badgen.net/npm/dm/@rosbel/crawl-n-snap
-[npm-dm-href]: https://npmjs.com/package/rosbel/crawl-n-snap
+[npm-dt-src]: https://flat.badgen.net/npm/dt/@rosbel/crawl-n-snap
+[npm-dt-href]: https://npmjs.com/package/@rosbel/crawl-n-snap
 [packagephobia-src]: https://flat.badgen.net/packagephobia/install/@rosbel/crawl-n-snap
 [packagephobia-href]: https://packagephobia.now.sh/result?p=@rosbel/crawl-n-snap
 [ci-status-src]: https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fci.yml?label=tests
