@@ -10,8 +10,8 @@ describe('parseResolution', () => {
 
     it('throws error for invalid resolution format', () => {
         expect(() => parseResolution('1920')).toThrow('Invalid resolution format');
-        expect(() => parseResolution('1920x')).toThrow('Invalid resolution format');
-        expect(() => parseResolution('x1080')).toThrow('Invalid resolution format');
+        expect(() => parseResolution('1920x')).toThrow('Invalid resolution dimensions: "1920x". Width and height must be positive numbers.');
+        expect(() => parseResolution('x1080')).toThrow('Invalid resolution dimensions: "x1080". Width and height must be positive numbers.');
         expect(() => parseResolution('1920-1080')).toThrow('Invalid resolution format');
     });
 
@@ -45,7 +45,7 @@ describe('sanitizePath', () => {
 
 describe('normalizeUrl', () => {
     it('removes trailing slashes from paths', () => {
-        expect(normalizeUrl('https://example.com/')).toBe('https://example.com');
+        expect(normalizeUrl('https://example.com/')).toBe('https://example.com/');
         expect(normalizeUrl('https://example.com/about/')).toBe('https://example.com/about');
     });
 

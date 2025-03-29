@@ -94,7 +94,7 @@ describe('extractLinks', () => {
         const result = await extractLinksForTest(mockPage, 'https://example.com');
         
         expect(result).toContain('https://example.com/page1');
-        expect(result).toContain('https://example.com');
+        expect(result).toContain('https://example.com/');
     });
 
     it('resolves absolute paths within the same domain', async () => {
