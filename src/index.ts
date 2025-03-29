@@ -90,9 +90,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   }
 
   // Parse string resolutions to Resolution objects
-  const parsedResolutions: Resolution[] = options.resolutions.map((res) =>
-    typeof res === 'string' ? parseResolution(res) : res
-  );
+  const parsedResolutions: Resolution[] = options.resolutions.map((res) => parseResolution(res));
 
   console.log(`Target URL: ${targetUrl}`);
   console.log(`Browser: ${options.browser}`);
