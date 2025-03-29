@@ -11,7 +11,7 @@ A CLI tool for taking website screenshots at various resolutions using Playwrigh
 
 ![npm](https://img.shields.io/npm/v/@rosbel/crawl-n-snap)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/npm-publish.yml)
-![License](https://img.shields.io/npm/l/@rosbel/crawl-n-snap)
+![License](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml?branch=main)
 
 ## Features
 
