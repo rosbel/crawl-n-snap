@@ -16,6 +16,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Test coverage
+coverage/
+.nyc_output/
+
+# Prettier
+.prettier-cache
+
 # Editor directories and files
 .idea/
 .vscode/

@@ -11,11 +11,14 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts --",
     "start": "node dist/index.js",
-    "prepare": "npm run build",
+    "prepare": "husky install && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix"
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write",
+    "lint-staged": "lint-staged",
+    "postinstall": "husky install"
   },
   "keywords": [
     "playwright",
@@ -38,6 +41,9 @@
     "@typescript-eslint/parser": "^7.0.0",
     "@vitest/coverage-v8": "^1.2.1",
     "eslint": "^8.57.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
     "tsx": "^4.7.2",
     "typescript": "^5.4.5",
     "vitest": "^1.2.1"

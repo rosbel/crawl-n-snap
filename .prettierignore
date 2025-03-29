@@ -1,0 +1,15 @@
+# Build outputs
+dist/
+
+# Generated files
+generated-screenshots/
+coverage/
+.nyc_output/
+
+# NPM files
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Ignore markdown
+*.md
