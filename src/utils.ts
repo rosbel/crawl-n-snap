@@ -26,8 +26,7 @@ export function collectResolutions(value: string, previous: Resolution[]): Resol
     const newRes = parseResolution(value);
     return previous.concat([newRes]);
   } catch (error: any) {
-    console.error(`Error parsing resolution "${value}": ${error.message}`);
-    process.exit(1); // Exit if resolution is invalid
+    throw new Error(`Error parsing resolution "${value}": ${error.message}`);
   }
 }
 
