@@ -1,5 +1,12 @@
 # Crawl-n-Snap
 
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/fe25d60a-1b66-4b35-a5c7-f39503158392" width="300"  
+    alt="Crawley the octopus, snapshotting while crawling through your website with Playwright" 
+    style="box-shadow: 0 4px 12px rgba(0,0,0,0.2); border-radius: 12px;" 
+   />
+</div>
+
 A CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.
 
 ![npm](https://img.shields.io/npm/v/@rosbel/crawl-n-snap)
