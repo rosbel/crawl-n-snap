@@ -5,6 +5,7 @@ import {program} from 'commander';
 import playwright, {BrowserType, Page} from 'playwright';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import {URL} from 'url';
 import {Resolution, parseResolution, collectResolutions, sanitizePath, normalizeUrl} from './utils';
 
@@ -286,8 +287,13 @@ const devicePresets = {
   ],
 };
 
+// Read package.json to get version
+const packageJson = JSON.parse(
+  fsSync.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+);
+
 program
-  .version('1.0.0')
+  .version(packageJson.version)
   .description(
     'CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.'
   )
@@ -370,7 +376,7 @@ program
 
       // Map commander's options to our interface
       const mappedOptions: CliOptions = {
-        resolutions: uniqueResolutions as unknown as string[],
+        resolutions: uniqueResolutions.map((r) => `${r.width}x${r.height}`),
         output: options.output,
         browser: options.browser,
         crawl: options.crawl,
