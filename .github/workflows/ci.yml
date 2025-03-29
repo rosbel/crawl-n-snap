@@ -55,4 +55,3 @@ jobs:
       
       - name: Lint
         run: pnpm run lint
-        continue-on-error: true  # This needs to be updated once you add linting
