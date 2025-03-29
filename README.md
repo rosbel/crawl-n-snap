@@ -10,7 +10,8 @@
 A CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.
 
 ![npm](https://img.shields.io/npm/v/@rosbel/crawl-n-snap)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml)
+![CI Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fci.yml?label=tests)
+![Publish Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml?label=publish)
 ![License](https://img.shields.io/github/license/rosbel/crawl-n-snap)
 
 ## Features
@@ -138,9 +139,46 @@ For example:
 ./generated-screenshots/example.com/20240328/1/1920x1080-about.png
 ```
 
-## GitHub Actions
+## Development
 
-This project uses GitHub Actions for automatic publishing to npm when changes are merged to the `main` branch.
+### Testing
+
+This project uses Vitest for unit testing. Run the tests with:
+
+```bash
+# Run tests once
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+```
+
+### Linting
+
+ESLint is configured for code quality. Run the linter with:
+
+```bash
+# Check for issues
+pnpm lint
+
+# Fix automatically fixable issues
+pnpm lint:fix
+```
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+### Continuous Integration
+
+The CI workflow runs on pull requests to the main branch and includes:
+- Automated testing
+- Code linting
+- Build verification
+
+### Publishing to npm
+
+Automatic publishing to npm occurs when changes are merged to the `main` branch.
 
 To set up automatic publishing:
 
