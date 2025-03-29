@@ -10,8 +10,8 @@
 A CLI tool for taking website screenshots at various resolutions using Playwright, with optional website crawling functionality.
 
 ![npm](https://img.shields.io/npm/v/@rosbel/crawl-n-snap)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/npm-publish.yml)
-![License](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml?branch=main)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rosbel/crawl-n-snap/.github%2Fworkflows%2Fnpm-publish.yml)
+![License](https://img.shields.io/github/license/rosbel/crawl-n-snap)
 
 ## Features
 
