@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Guidelines for Claude Agents
 
 ## Commands
@@ -33,4 +37,34 @@ The project uses Husky and lint-staged to automatically:
 - **File Structure**: Keep CLI logic separate from core functionality
 
 ## CLI Tool Structure
+
 This project is a CLI tool for taking website screenshots at various resolutions using Playwright.
+
+### Core Architecture
+
+- **Entry Point**: `src/index.ts` - Main CLI logic using Commander.js
+- **Utilities**: `src/utils.ts` - Shared utility functions for resolution parsing, URL normalization
+- **Test Files**: `*.test.ts` files for unit testing with Vitest
+
+### Key Components
+
+1. **CLI Interface**: Built with Commander.js, supports multiple resolution presets and crawling
+2. **Screenshot Engine**: Uses Playwright to capture full-page screenshots across multiple browsers
+3. **URL Processing**: Handles URL normalization and link extraction for crawling functionality
+4. **File Organization**: Creates structured output directories with hostname/date/run-number hierarchy
+
+### Browser Support
+
+- Chromium (default)
+- Firefox  
+- WebKit
+
+### Output Structure
+
+Screenshots are organized as: `<output_dir>/generated-screenshots/<hostname>/<date>/<run_number>/<resolution>-<path>.png`
+
+## Testing Framework
+
+- **Test Runner**: Vitest for unit tests
+- **Coverage**: V8 provider with text, lcov, and HTML reports
+- **Test Files**: Located alongside source files with `.test.ts` extension
