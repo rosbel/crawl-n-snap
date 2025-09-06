@@ -36,6 +36,7 @@ interface CliOptions {
   waitUntil: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
   delay: number;
   fullPage: boolean;
+  headless: boolean;
 }
 
 interface ErrorSummary {
@@ -62,6 +63,7 @@ interface ConfigFile {
   waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit' | string;
   delay?: number;
   fullPage?: boolean;
+  headless?: boolean;
 }
 
 // --- Configuration File Support ---
@@ -147,6 +149,8 @@ function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any
     delay: cliOptions.delay !== 0 ? cliOptions.delay : (config.delay ?? cliOptions.delay),
     fullPage:
       typeof cliOptions.fullPage === 'boolean' ? cliOptions.fullPage : (config.fullPage ?? true),
+    headless:
+      typeof cliOptions.headless === 'boolean' ? cliOptions.headless : (config.headless ?? true),
   };
 }
 
@@ -346,6 +350,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   console.log(
     `Wait Until: ${options.waitUntil}; Delay before screenshot: ${options.delay}ms; Full Page: ${options.fullPage}`
   );
+  console.log(`Headless: ${options.headless}`);
   console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
   if (options.crawl) {
     console.log(`Max Pages: ${options.maxPages}`);
@@ -370,7 +375,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     // Launch Browser
     const browserType: BrowserType = playwright[options.browser];
     console.log(`Launching ${options.browser}...`);
-    browser = await browserType.launch();
+    browser = await browserType.launch({headless: options.headless});
     const context = await browser.newContext();
     const page = await context.newPage();
     console.log('Browser launched successfully.');
@@ -686,6 +691,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         waitUntil: options.waitUntil,
         delay: options.delay,
         fullPage: options.fullPage,
+        headless: options.headless,
         includePatterns: options.includePatterns,
         excludePatterns: options.excludePatterns,
         resolutions: parsedResolutions.map((r) => `${r.width}x${r.height}`),
@@ -868,6 +874,7 @@ program
     0
   )
   .option('--no-full-page', 'Capture only the visible viewport (default is full page).')
+  .option('--no-headless', 'Run browser in headed mode (show UI).')
   .action(
     async (
       url: string,
@@ -889,6 +896,7 @@ program
         waitUntil: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
         delay: number;
         fullPage: boolean;
+        headless: boolean;
       }
     ) => {
       try {
@@ -930,6 +938,7 @@ program
           waitUntil: mergedOptions.waitUntil,
           delay: mergedOptions.delay,
           fullPage: mergedOptions.fullPage,
+          headless: mergedOptions.headless,
         };
 
         // Basic URL validation before passing to the main function
