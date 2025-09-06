@@ -3,9 +3,11 @@ node_modules/
 
 # Build outputs
 dist/
+ui/dist/
 
 # Generated files
 generated-screenshots/
+dev-screenshots/
 
 # Environment variables
 .env

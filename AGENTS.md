@@ -11,8 +11,9 @@
 
 ## Build, Test, and Development Commands
 
-- `npm run dev` or `pnpm dev`: Run in watch mode with tsx. Pass CLI args after `--`.
-  Example: `pnpm dev -- https://example.com --desktop`.
+- `npm run dev` or `pnpm dev`: Launches the web UI (React + Vite) and dev API server. Enter a URL, tweak options, run/abort, view logs.
+  - `pnpm dev:cli -- <args>`: Watch the CLI entry with your own args.
+    Example: `pnpm dev:cli -- https://example.com --desktop`.
 - `npm run build` or `pnpm build`: Type-check and compile to `dist/`.
 - `npm start` or `pnpm start`: Run compiled CLI (`node dist/index.js`).
 - `npm test` / `pnpm test`: Run unit tests (Vitest).

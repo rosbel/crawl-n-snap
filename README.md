@@ -310,6 +310,25 @@ pnpm lint
 pnpm lint:fix
 ```
 
+### Local Dev UI
+
+Run the web UI (React + Vite) that mirrors CLI options and streams logs:
+
+```bash
+pnpm dev
+```
+
+This starts:
+
+- Dev API: `http://localhost:3001` (proxies from Vite), spawns the CLI with your options
+- Web UI: `http://localhost:5173` (auto-opens in the terminal)
+
+You can enter a URL, adjust options, run/abort, and watch logs live. For direct CLI watching with your own args:
+
+```bash
+pnpm dev:cli -- https://example.com --desktop
+```
+
 ## CI/CD
 
 This project uses GitHub Actions for continuous integration and deployment:
