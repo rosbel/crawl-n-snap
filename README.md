@@ -83,8 +83,12 @@ Options:
   -p, --max-pages <n>      Maximum number of pages to crawl (only used with --crawl) (default: 50)
   -t, --timeout <ms>       Early screenshot timeout in milliseconds (default: 5000, max Playwright timeout: 30000)
   --concurrency <n>        Maximum number of concurrent screenshot operations (default: 3)
-  -r, --retries <n>        Number of retry attempts for failed screenshots (default: 2)
+  -R, --retries <n>        Number of retry attempts for failed screenshots (default: 2)
   -x, --exclude-pattern    URL patterns to exclude from crawling (supports wildcards like */admin/*). Repeatable.
+  -i, --include-pattern    URL patterns to include when crawling (supports wildcards). Repeatable.
+  --wait-until <state>     Navigation waitUntil (load | domcontentloaded | networkidle | commit) (default: networkidle)
+  --delay <ms>             Delay before screenshot after navigation/timeout (ms) (default: 0)
+  --no-full-page           Capture only the visible viewport (default is full page)
   --continue-on-error      Continue processing other URLs/resolutions when errors occur (default: true)
   --fail-fast              Stop processing immediately when any error occurs
   -V, --version            Output the version number

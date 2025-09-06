@@ -67,3 +67,16 @@ export function normalizeUrl(url: string): string {
     return url; // Return original if invalid
   }
 }
+
+// Sanitize the query string (without leading '?') for safe filenames
+// Example: '?q=test&page=2' -> 'q_test_page_2'
+export function sanitizeQuery(query: string): string {
+  if (!query) return '';
+  const trimmed = query.startsWith('?') ? query.slice(1) : query;
+  if (trimmed.length === 0) return '';
+  // Replace non-alphanumeric with underscore, collapse repeats
+  return trimmed
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}

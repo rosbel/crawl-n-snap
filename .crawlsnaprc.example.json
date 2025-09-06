@@ -10,5 +10,9 @@
   "continueOnError": true,
   "desktop": false,
   "mobile": false,
-  "excludePatterns": ["*/admin/*", "*/login/*"]
+  "excludePatterns": ["*/admin/*", "*/login/*"],
+  "includePatterns": ["*/products/*"],
+  "waitUntil": "networkidle",
+  "delay": 0,
+  "fullPage": true
 }

@@ -7,7 +7,14 @@ import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import {URL} from 'url';
-import {Resolution, parseResolution, collectResolutions, sanitizePath, normalizeUrl} from './utils';
+import {
+  Resolution,
+  parseResolution,
+  collectResolutions,
+  sanitizePath,
+  normalizeUrl,
+  sanitizeQuery,
+} from './utils';
 import os from 'os';
 
 // Define valid browser types for Playwright
@@ -24,7 +31,11 @@ interface CliOptions {
   concurrency: number;
   retries: number;
   excludePatterns: string[];
+  includePatterns: string[];
   continueOnError: boolean;
+  waitUntil: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
+  delay: number;
+  fullPage: boolean;
 }
 
 interface ErrorSummary {
@@ -47,6 +58,10 @@ interface ConfigFile {
   desktop?: boolean;
   mobile?: boolean;
   excludePatterns?: string[];
+  includePatterns?: string[];
+  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit' | string;
+  delay?: number;
+  fullPage?: boolean;
 }
 
 // --- Configuration File Support ---
@@ -92,6 +107,11 @@ function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any
 
   // Merge exclude patterns from both CLI and config
   const excludePatterns = [...(cliOptions.excludePattern || []), ...(config.excludePatterns || [])];
+  const includePatterns = [...(cliOptions.includePattern || []), ...(config.includePatterns || [])];
+
+  const allowedWaitUntil = ['load', 'domcontentloaded', 'networkidle', 'commit'] as const;
+  const safeWaitUntil = (val: any) =>
+    allowedWaitUntil.includes(val) ? val : (undefined as unknown as never);
 
   return {
     resolution:
@@ -114,11 +134,19 @@ function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any
         : config.concurrency || cliOptions.concurrency,
     retries: cliOptions.retries !== 2 ? cliOptions.retries : (config.retries ?? cliOptions.retries),
     excludePattern: excludePatterns,
+    includePattern: includePatterns,
     continueOnError: cliOptions.failFast
       ? false
       : (cliOptions.continueOnError ?? config.continueOnError ?? true),
     desktop: cliOptions.desktop || config.desktop || false,
     mobile: cliOptions.mobile || config.mobile || false,
+    waitUntil:
+      cliOptions.waitUntil !== 'networkidle'
+        ? cliOptions.waitUntil
+        : safeWaitUntil(config.waitUntil) || cliOptions.waitUntil,
+    delay: cliOptions.delay !== 0 ? cliOptions.delay : (config.delay ?? cliOptions.delay),
+    fullPage:
+      typeof cliOptions.fullPage === 'boolean' ? cliOptions.fullPage : (config.fullPage ?? true),
   };
 }
 
@@ -134,6 +162,16 @@ function isUrlExcluded(url: string, excludePatterns: string[]): boolean {
       .replace(/\*/g, '.*'); // Convert * to .*
 
     const regex = new RegExp(`^${regexPattern}$`, 'i'); // Case insensitive
+    return regex.test(url);
+  });
+}
+
+// Function to check if a URL matches include patterns (if present)
+function isUrlIncluded(url: string, includePatterns: string[]): boolean {
+  if (!includePatterns || includePatterns.length === 0) return true; // Include all if none provided
+  return includePatterns.some((pattern) => {
+    const regexPattern = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`, 'i');
     return regex.test(url);
   });
 }
@@ -305,11 +343,17 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   console.log(`Browser: ${options.browser}`);
   console.log(`Output Directory: ${path.resolve(options.output)}`);
   console.log(`Early Screenshot Timeout: ${options.timeout}ms, Playwright Max Timeout: 30000ms`);
+  console.log(
+    `Wait Until: ${options.waitUntil}; Delay before screenshot: ${options.delay}ms; Full Page: ${options.fullPage}`
+  );
   console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
   if (options.crawl) {
     console.log(`Max Pages: ${options.maxPages}`);
     if (options.excludePatterns.length > 0) {
       console.log(`Exclude Patterns: ${options.excludePatterns.join(', ')}`);
+    }
+    if (options.includePatterns.length > 0) {
+      console.log(`Include Patterns: ${options.includePatterns.join(', ')}`);
     }
   }
   console.log(`Retry Attempts: ${options.retries}`);
@@ -336,6 +380,18 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     const pendingUrls: string[] = [targetUrl];
     let processedCount = 0;
     const errorSummaries: ErrorSummary[] = [];
+    const runStartedAt = new Date();
+    const perPageResults: Array<{
+      url: string;
+      results: Array<{
+        resolution: string;
+        outputPath?: string;
+        success: boolean;
+        attempts: number;
+        error?: string;
+      }>;
+    }> = [];
+    let anyFailures = false;
 
     // Get the hostname and date for directory structure
     const urlObj = new URL(targetUrl);
@@ -389,7 +445,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         try {
           // Use fixed 30 second timeout for Playwright
           const navigationPromise = page.goto(normalizedUrl, {
-            waitUntil: 'networkidle',
+            waitUntil: options.waitUntil,
             timeout: 30000, // Fixed Playwright timeout
           });
 
@@ -431,7 +487,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
                   // Navigate to the URL with timeout handling
                   try {
                     const navigationPromise = resolutionPage.goto(normalizedUrl, {
-                      waitUntil: 'networkidle',
+                      waitUntil: options.waitUntil,
                       timeout: 30000,
                     });
 
@@ -450,16 +506,22 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
                   // Set viewport for this resolution
                   await resolutionPage.setViewportSize({width, height});
 
+                  // Optional delay before screenshot
+                  if (options.delay > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, options.delay));
+                  }
+
                   // Get sanitized path for the current URL
                   const url = new URL(normalizedUrl);
                   const sanitizedPath = sanitizePath(url.pathname);
+                  const sanitizedQ = sanitizeQuery(url.search);
 
                   // Generate filename
-                  const filename = `${resolutionString}-${sanitizedPath}.png`;
+                  const filename = `${resolutionString}-${sanitizedPath}${sanitizedQ ? `__${sanitizedQ}` : ''}.png`;
                   const outputPath = path.join(screenshotBaseDir, filename);
 
                   // Take screenshot
-                  await resolutionPage.screenshot({path: outputPath, fullPage: true});
+                  await resolutionPage.screenshot({path: outputPath, fullPage: options.fullPage});
 
                   return {outputPath};
                 } finally {
@@ -507,7 +569,19 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
           }
         });
 
+        perPageResults.push({
+          url: normalizedUrl,
+          results: results.map((r) => ({
+            resolution: r.resolution,
+            outputPath: r.outputPath,
+            success: r.success,
+            attempts: r.attempts,
+            error: (r as any).error,
+          })),
+        });
+
         console.log(`\nScreenshot summary: ${successCount} successful, ${failureCount} failed`);
+        if (failureCount > 0) anyFailures = true;
 
         // If crawling is enabled, extract and queue more URLs
         if (options.crawl) {
@@ -520,11 +594,14 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
             const normalizedLink = normalizeUrl(link);
             if (
               !visitedUrls.has(normalizedLink) &&
-              !isUrlExcluded(normalizedLink, options.excludePatterns)
+              !isUrlExcluded(normalizedLink, options.excludePatterns) &&
+              isUrlIncluded(normalizedLink, options.includePatterns)
             ) {
               pendingUrls.push(normalizedLink);
             } else if (isUrlExcluded(normalizedLink, options.excludePatterns)) {
               console.log(`  - Excluding URL (matches pattern): ${normalizedLink}`);
+            } else if (!isUrlIncluded(normalizedLink, options.includePatterns)) {
+              console.log(`  - Skipping URL (does not match include patterns): ${normalizedLink}`);
             }
           }
 
@@ -533,6 +610,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
       } catch (error: any) {
         const errorSummary = createErrorSummary(normalizedUrl, error);
         errorSummaries.push(errorSummary);
+        anyFailures = true;
 
         console.error(`Error processing ${normalizedUrl}: ${error.message}`);
         console.error(`Error type: ${errorSummary.type}`);
@@ -588,6 +666,44 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
       }
     } else {
       console.log('\n✓ No errors occurred during processing.');
+    }
+
+    // Write run manifest
+    const runFinishedAt = new Date();
+    const manifest = {
+      target: targetUrl,
+      startedAt: runStartedAt.toISOString(),
+      finishedAt: runFinishedAt.toISOString(),
+      options: {
+        browser: options.browser,
+        output: options.output,
+        crawl: options.crawl,
+        maxPages: options.maxPages,
+        timeout: options.timeout,
+        concurrency: options.concurrency,
+        retries: options.retries,
+        continueOnError: options.continueOnError,
+        waitUntil: options.waitUntil,
+        delay: options.delay,
+        fullPage: options.fullPage,
+        includePatterns: options.includePatterns,
+        excludePatterns: options.excludePatterns,
+        resolutions: parsedResolutions.map((r) => `${r.width}x${r.height}`),
+      },
+      pages: perPageResults,
+      errors: errorSummaries,
+      summary: {
+        pagesProcessed: visitedUrls.size,
+        totalErrors: errorSummaries.length,
+        anyFailures: anyFailures || errorSummaries.length > 0,
+      },
+    };
+    const manifestPath = path.join(screenshotBaseDir, 'run.json');
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+    console.log(`\nRun manifest written: ${manifestPath}`);
+
+    if (anyFailures || errorSummaries.length > 0) {
+      process.exitCode = 1;
     }
   } catch (error: any) {
     console.error('\n--- An Error Occurred ---');
@@ -695,7 +811,7 @@ program
     3
   )
   .option(
-    '-r, --retries <n>',
+    '-R, --retries <n>',
     'Number of retry attempts for failed screenshots (defaults to 2)',
     (value) => {
       const parsed = parseInt(value, 10);
@@ -715,11 +831,43 @@ program
     []
   )
   .option(
+    '-i, --include-pattern <pattern>',
+    'URL patterns to include when crawling (supports wildcards). If provided, only matching URLs are crawled. Repeatable.',
+    (value: string, previous: string[] = []) => previous.concat([value]),
+    []
+  )
+  .option(
     '--continue-on-error',
     'Continue processing other URLs/resolutions when errors occur (default: true)',
     true
   )
   .option('--fail-fast', 'Stop processing immediately when any error occurs', false)
+  .option<'load' | 'domcontentloaded' | 'networkidle' | 'commit'>(
+    '--wait-until <state>',
+    'Playwright navigation waitUntil state (load | domcontentloaded | networkidle | commit). Default: networkidle',
+    (value: string) => {
+      const v = value.toLowerCase();
+      const allowed = ['load', 'domcontentloaded', 'networkidle', 'commit'];
+      if (!allowed.includes(v)) {
+        throw new Error(`Invalid wait-until state. Choose from: ${allowed.join(', ')}`);
+      }
+      return v as any;
+    },
+    'networkidle'
+  )
+  .option(
+    '--delay <ms>',
+    'Delay before taking a screenshot after navigation/timeout (milliseconds). Default: 0',
+    (value) => {
+      const parsed = parseInt(value, 10);
+      if (isNaN(parsed) || parsed < 0) {
+        throw new Error('Delay must be a non-negative number');
+      }
+      return parsed;
+    },
+    0
+  )
+  .option('--no-full-page', 'Capture only the visible viewport (default is full page).')
   .action(
     async (
       url: string,
@@ -735,8 +883,12 @@ program
         concurrency: number;
         retries: number;
         excludePattern: string[];
+        includePattern: string[];
         continueOnError: boolean;
         failFast: boolean;
+        waitUntil: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
+        delay: number;
+        fullPage: boolean;
       }
     ) => {
       try {
@@ -773,7 +925,11 @@ program
           concurrency: mergedOptions.concurrency,
           retries: mergedOptions.retries,
           excludePatterns: mergedOptions.excludePattern,
+          includePatterns: mergedOptions.includePattern,
           continueOnError: mergedOptions.continueOnError,
+          waitUntil: mergedOptions.waitUntil,
+          delay: mergedOptions.delay,
+          fullPage: mergedOptions.fullPage,
         };
 
         // Basic URL validation before passing to the main function
