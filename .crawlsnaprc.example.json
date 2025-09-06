@@ -1,0 +1,14 @@
+{
+  "resolutions": ["1920x1080", "1366x768", "390x844"],
+  "browser": "chromium",
+  "output": "./screenshots",
+  "crawl": false,
+  "maxPages": 50,
+  "timeout": 5000,
+  "concurrency": 3,
+  "retries": 2,
+  "continueOnError": true,
+  "desktop": false,
+  "mobile": false,
+  "excludePatterns": ["*/admin/*", "*/login/*"]
+}
