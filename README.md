@@ -191,6 +191,7 @@ Screenshots are saved with the following structure:
 ```
 
 For example:
+
 ```
 ./generated-screenshots/example.com/20240328/1/1920x1080-root.png
 ./generated-screenshots/example.com/20240328/1/1920x1080-about.png
@@ -201,7 +202,7 @@ For example:
 Crawl-n-Snap supports configuration files to store project-specific settings. The tool looks for configuration files in this order:
 
 1. `.crawlsnaprc.json` in the current directory
-2. `.crawlsnaprc` in the current directory  
+2. `.crawlsnaprc` in the current directory
 3. `.crawlsnaprc.json` in the home directory
 4. `.crawlsnaprc` in the home directory
 
@@ -256,7 +257,7 @@ npx @rosbel/crawl-n-snap https://example.com --concurrency 1
 Failed screenshots are automatically retried with exponential backoff:
 
 - 1st retry: after 1 second
-- 2nd retry: after 2 seconds  
+- 2nd retry: after 2 seconds
 - 3rd retry: after 4 seconds
 - etc.
 
@@ -312,6 +313,7 @@ This project uses GitHub Actions for continuous integration and deployment:
 ### Continuous Integration
 
 The CI workflow runs on pull requests to the main branch and includes:
+
 - Automated testing
 - Code linting
 - Build verification

@@ -20,6 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Pre-commit Hooks
 
 The project uses Husky and lint-staged to automatically:
+
 - Format code with Prettier
 - Fix ESLint issues
 - These hooks only run on changed files when committing
@@ -56,7 +57,7 @@ This project is a CLI tool for taking website screenshots at various resolutions
 ### Browser Support
 
 - Chromium (default)
-- Firefox  
+- Firefox
 - WebKit
 
 ### Output Structure
