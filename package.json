@@ -16,8 +16,10 @@
     "prepare": "husky install && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint": "eslint \"src/**/*.ts\" \"ui/src/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" --fix",
+    "lint:ui": "eslint \"ui/src/**/*.{ts,tsx}\"",
+    "test:ui": "vitest run",
     "format": "prettier --write .",
     "lint-staged": "lint-staged"
   },

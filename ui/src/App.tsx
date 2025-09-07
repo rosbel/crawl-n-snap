@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { abortRun, openEvents, RunPayload, startRun, openPath, listRuns, downloadManifest, fetchManifest, fileUrl } from './api'
 import './theme.css'
+import { parseResolutions } from './utils'
 
-const section: React.CSSProperties = { marginBlock: '16px', padding: '16px', border: '1px solid #e6e6e6', borderRadius: 12, background: 'var(--card-bg)' }
-const label: React.CSSProperties = { display: 'block', fontSize: 12, color: '#666', marginBottom: 6 }
-const input: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', outline: 'none' }
-const row: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }
-const button: React.CSSProperties = { padding: '10px 14px', borderRadius: 8, border: '1px solid #0b6', background: '#0b6', color: '#fff', cursor: 'pointer' }
-const buttonGhost: React.CSSProperties = { ...button, background: '#fff', color: '#0b6' }
+const section: React.CSSProperties = { marginBlock: 20, padding: 20, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--card-bg)' }
+const label: React.CSSProperties = { display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8 }
+const input: React.CSSProperties = { width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--fg)', outline: 'none' }
+const row: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }
+const button: React.CSSProperties = { padding: '12px 16px', borderRadius: 10, border: '1px solid transparent', background: 'var(--accent-grad)', color: '#fff', cursor: 'pointer' }
+const buttonGhost: React.CSSProperties = { padding: '12px 16px', borderRadius: 10, border: '1px solid var(--accent)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer' }
 
 export default function App() {
   const [url, setUrl] = useState('https://example.com')
@@ -48,7 +49,6 @@ export default function App() {
   const [runId, setRunId] = useState<string | null>(null)
   const [runs, setRuns] = useState<any[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [logIndex, setLogIndex] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
   const [status, setStatus] = useState<'idle'|'running'|'completed'|'failed'|'aborted'>('idle')
   const [exitCode, setExitCode] = useState<number | null>(null)
@@ -58,12 +58,15 @@ export default function App() {
   const [resProgress, setResProgress] = useState({current: 0, total: 0})
   const [headful, setHeadful] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [wrapLogs, setWrapLogs] = useState<boolean>(() => {
+    try { return JSON.parse(localStorage.getItem('cns:wrapLogs') || 'true') } catch { return true }
+  })
   const logsRef = useRef<HTMLPreElement | null>(null)
   const logsEndRef = useRef<HTMLDivElement | null>(null)
 
   const payload: RunPayload = useMemo(() => ({
     url,
-    resolutions: resolutions.split(',').map(s => s.trim()).filter(Boolean),
+    resolutions: parseResolutions(resolutions),
     desktop,
     mobile,
     browser,
@@ -92,23 +95,22 @@ export default function App() {
         setStatus(data.status)
         setExitCode(data.exitCode)
         setManifestPath(data.manifestPath)
-      } catch {}
+      } catch { /* ignore parse errors */ }
     })
     es.addEventListener('logs', (ev: MessageEvent) => {
       try {
         const data = JSON.parse((ev as any).data)
         if (data.lines?.length) {
           setLogs(prev => [...prev, ...data.lines])
-          setLogIndex(data.next)
         }
-      } catch {}
+      } catch { /* ignore parse errors */ }
     })
     es.addEventListener('metrics', (ev: MessageEvent) => {
       try {
         const m = JSON.parse((ev as any).data)
         setPageProgress({current: m.pageCurrent || 0, total: m.pageTotal || 0})
         setResProgress({current: m.resCurrent || 0, total: m.resTotal || 0})
-      } catch {}
+      } catch { /* ignore parse errors */ }
     })
     return () => es.close()
   }, [runId])
@@ -121,19 +123,17 @@ export default function App() {
 
   // Load runs periodically
   useEffect(() => {
-    let t: any
     const load = async () => {
-      try { setRuns(await listRuns()) } catch {}
+      try { setRuns(await listRuns()) } catch { /* ignore */ }
     }
     load()
-    t = setInterval(load, 1500)
+    const t = setInterval(load, 1500)
     return () => clearInterval(t)
   }, [])
 
   async function onRun(e: React.FormEvent) {
     e.preventDefault()
     setLogs([])
-    setLogIndex(0)
     setExitCode(null)
     setManifestPath(null)
     setStatus('running')
@@ -153,10 +153,14 @@ export default function App() {
     localStorage.setItem('cns:theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    try { localStorage.setItem('cns:wrapLogs', JSON.stringify(wrapLogs)) } catch { /* ignore */ }
+  }, [wrapLogs])
+
   return (
     <div style={{ fontFamily: 'ui-sans-serif, system-ui, -apple-system', background: 'var(--bg)', color: 'var(--fg)', minHeight: '100vh' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div>
             <h1 style={{ marginBottom: 4 }}>Crawl‑n‑Snap</h1>
             <p style={{ color: 'var(--muted)', marginTop: 0 }}>Interactive UI for the CLI. Fill in options and run.</p>
@@ -249,7 +253,8 @@ export default function App() {
               }}>Save</button>
               <button type="button" style={buttonGhost} onClick={()=>{
                 if (!profileName) return;
-                const {[profileName]:_, ...rest} = profiles;
+                const rest = { ...profiles } as Record<string, any>;
+                delete (rest as any)[profileName];
                 setProfiles(rest);
                 setProfileName('');
                 localStorage.setItem('cns:profiles', JSON.stringify(rest));
@@ -321,7 +326,7 @@ export default function App() {
 
         <div className="card" style={{ marginTop: 16 }}>
           <div className="two-col">
-            <div style={{ borderRight: '1px solid #e6e6e6', paddingRight: 12 }}>
+            <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h3 style={{ margin: 0 }}>Run History</h3>
                 <button type="button" style={buttonGhost} onClick={async ()=> setRuns(await listRuns())}>Refresh</button>
@@ -337,7 +342,7 @@ export default function App() {
                 {!runs.length && <div style={{ color: 'var(--muted)' }}>No runs yet.</div>}
               </div>
             </div>
-            <div>
+            <div style={{ minWidth: 0 }}>
               {/* Progress + status + logs */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
@@ -346,7 +351,7 @@ export default function App() {
                 <span>{pageProgress.current}/{pageProgress.total || '?'}</span>
               </div>
               <div style={{ height: 8, borderRadius: 999, background: 'var(--bar-bg)' }}>
-                <div style={{ height: '100%', borderRadius: 999, width: `${pageProgress.total? Math.min(100, Math.round(pageProgress.current / pageProgress.total * 100)) : 0}%`, background: 'var(--accent)' }} />
+                <div style={{ height: '100%', borderRadius: 999, width: `${pageProgress.total? Math.min(100, Math.round(pageProgress.current / pageProgress.total * 100)) : 0}%`, backgroundImage: 'var(--accent-grad)' }} />
               </div>
             </div>
             <div>
@@ -355,7 +360,7 @@ export default function App() {
                 <span>{resProgress.current}/{resProgress.total || '?'}</span>
               </div>
               <div style={{ height: 8, borderRadius: 999, background: 'var(--bar-bg)' }}>
-                <div style={{ height: '100%', borderRadius: 999, width: `${resProgress.total? Math.min(100, Math.round(resProgress.current / resProgress.total * 100)) : 0}%`, background: 'var(--accent)' }} />
+                <div style={{ height: '100%', borderRadius: 999, width: `${resProgress.total? Math.min(100, Math.round(resProgress.current / resProgress.total * 100)) : 0}%`, backgroundImage: 'var(--accent-grad)' }} />
               </div>
             </div>
           </div>
@@ -367,9 +372,10 @@ export default function App() {
               <a href="#" onClick={async (e)=>{ e.preventDefault(); if(manifestPath) await openPath(manifestPath, 'dir') }} style={{ color: 'var(--accent)' }}>Open folder</a>
               <a href="#" onClick={async (e)=>{ e.preventDefault(); if(selectedRunId) await downloadManifest(selectedRunId) }} style={{ color: 'var(--accent)' }}>Download manifest</a>
             </>}
-            <label style={{ marginLeft: 'auto' }}><input type="checkbox" checked={autoScroll} onChange={e=>setAutoScroll(e.target.checked)} /> Auto-scroll logs</label>
+            <label style={{ marginLeft: 'auto' }}><input type="checkbox" checked={autoScroll} onChange={e=>setAutoScroll(e.target.checked)} /> Auto-scroll</label>
+            <label><input type="checkbox" checked={wrapLogs} onChange={e=>setWrapLogs(e.target.checked)} /> Wrap lines</label>
           </div>
-          <pre ref={logsRef} style={{ marginTop: 12, background: 'var(--logs-bg)', color: 'var(--logs-fg)', padding: 12, borderRadius: 8, maxHeight: 400, overflow: 'auto' }}>
+          <pre ref={logsRef} className="terminal" style={{ marginTop: 12, maxHeight: 400, whiteSpace: wrapLogs ? 'pre-wrap' as const : 'pre' as const, wordBreak: wrapLogs ? 'break-word' : 'normal' }}>
 {logs.join('\n')}
           </pre>
           <div ref={logsEndRef} />

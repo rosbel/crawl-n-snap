@@ -40,4 +40,25 @@ export default defineConfig([
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
+  // UI (React + TSX)
+  {
+    files: ['ui/src/**/*.{ts,tsx}'],
+    plugins: {
+      '@typescript-eslint': typescriptEslint,
+    },
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+      parser: tsParser,
+      ecmaVersion: 2020,
+      sourceType: 'module',
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    rules: {
+      'no-console': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 ]);
