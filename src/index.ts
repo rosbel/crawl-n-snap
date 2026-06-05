@@ -28,6 +28,7 @@ interface CliOptions {
   crawl: boolean;
   maxPages: number;
   timeout: number;
+  navTimeout: number;
   concurrency: number;
   retries: number;
   excludePatterns: string[];
@@ -53,6 +54,7 @@ interface ConfigFile {
   crawl?: boolean;
   maxPages?: number;
   timeout?: number;
+  navTimeout?: number;
   concurrency?: number;
   retries?: number;
   continueOnError?: boolean;
@@ -130,6 +132,10 @@ function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any
       cliOptions.maxPages !== 50 ? cliOptions.maxPages : config.maxPages || cliOptions.maxPages,
     timeout:
       cliOptions.timeout !== 5000 ? cliOptions.timeout : config.timeout || cliOptions.timeout,
+    navTimeout:
+      cliOptions.navTimeout !== 30000
+        ? cliOptions.navTimeout
+        : (config.navTimeout ?? cliOptions.navTimeout),
     concurrency:
       cliOptions.concurrency !== 3
         ? cliOptions.concurrency
@@ -143,7 +149,7 @@ function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any
     desktop: cliOptions.desktop || config.desktop || false,
     mobile: cliOptions.mobile || config.mobile || false,
     waitUntil:
-      cliOptions.waitUntil !== 'networkidle'
+      cliOptions.waitUntil !== 'load'
         ? cliOptions.waitUntil
         : safeWaitUntil(config.waitUntil) || cliOptions.waitUntil,
     delay: cliOptions.delay !== 0 ? cliOptions.delay : (config.delay ?? cliOptions.delay),
@@ -283,6 +289,44 @@ async function retryWithBackoff<T>(
   throw lastError;
 }
 
+// Navigate to a URL, racing the user's "early screenshot" timeout against the
+// hard navigation cap. Resolves as soon as the page reaches `waitUntil` OR the
+// early timeout elapses, so we can still screenshot a slow/never-idle page.
+// Real navigation failures (DNS, connection refused) that occur before the
+// early timeout are surfaced; the hard-cap TimeoutError is swallowed so the
+// caller proceeds with whatever has rendered. Always clears its timer and never
+// leaves a dangling unhandled rejection on the abandoned goto.
+async function navigateWithEarlyTimeout(
+  page: Page,
+  url: string,
+  waitUntil: CliOptions['waitUntil'],
+  earlyTimeout: number,
+  navTimeout: number
+): Promise<void> {
+  const navigation = page.goto(url, {waitUntil, timeout: navTimeout}).then(() => undefined);
+  // If we abandon the navigation after the early timeout wins, make sure its
+  // eventual settlement (e.g. "Target closed" once we close the page) does not
+  // surface as an unhandled rejection.
+  navigation.catch(() => {});
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const earlyExit = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, earlyTimeout);
+  });
+
+  try {
+    await Promise.race([navigation, earlyExit]);
+  } catch (error: any) {
+    // Navigation rejected before the early timeout. The hard-cap timeout is
+    // expected (proceed with partial render); anything else is a real failure.
+    if (error?.name !== 'TimeoutError') {
+      throw error;
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function extractLinks(page: Page, baseUrl: string): Promise<string[]> {
   const url = new URL(baseUrl);
   const baseOrigin = url.origin;
@@ -353,7 +397,9 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   console.log(`Target URL: ${targetUrl}`);
   console.log(`Browser: ${options.browser}`);
   console.log(`Output Directory: ${path.resolve(options.output)}`);
-  console.log(`Early Screenshot Timeout: ${options.timeout}ms, Playwright Max Timeout: 30000ms`);
+  console.log(
+    `Early Screenshot Timeout: ${options.timeout}ms, Navigation Timeout: ${options.navTimeout}ms`
+  );
   console.log(
     `Wait Until: ${options.waitUntil}; Delay before screenshot: ${options.delay}ms; Full Page: ${options.fullPage}`
   );
@@ -452,31 +498,18 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
       console.log(`\n[${processedCount}/${options.maxPages}] Processing URL: ${normalizedUrl}`);
 
       try {
-        // Navigate to the URL only once
-        console.log(`- Navigating to ${normalizedUrl}...`);
-        try {
-          // Use fixed 30 second timeout for Playwright
-          const navigationPromise = page.goto(normalizedUrl, {
-            waitUntil: options.waitUntil,
-            timeout: 30000, // Fixed Playwright timeout
-          });
-
-          // Race between networkidle and user-specified timeout
-          await Promise.race([
-            navigationPromise,
-            new Promise((resolve) => setTimeout(resolve, options.timeout)),
-          ]);
-          console.log(
-            `- Navigation complete (either networkidle or ${options.timeout}ms timeout reached).`
+        // The shared page is used ONLY for link extraction during a crawl. In
+        // the default (non-crawl) path it produces no output, so navigating it
+        // is wasted work — each resolution loads the URL on its own page below.
+        if (options.crawl) {
+          console.log(`- Navigating to ${normalizedUrl} (for link extraction)...`);
+          await navigateWithEarlyTimeout(
+            page,
+            normalizedUrl,
+            options.waitUntil,
+            options.timeout,
+            options.navTimeout
           );
-        } catch (error: any) {
-          if (error.name === 'TimeoutError') {
-            console.log(
-              `- Playwright navigation timeout reached (30000ms). Continuing with screenshot.`
-            );
-          } else {
-            throw error; // Rethrow other errors
-          }
         }
 
         // Process all resolutions with controlled concurrency for better performance
@@ -496,27 +529,19 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
                 const resolutionPage = await context.newPage();
 
                 try {
-                  // Navigate to the URL with timeout handling
-                  try {
-                    const navigationPromise = resolutionPage.goto(normalizedUrl, {
-                      waitUntil: options.waitUntil,
-                      timeout: 30000,
-                    });
-
-                    // Race between networkidle and user-specified timeout
-                    await Promise.race([
-                      navigationPromise,
-                      new Promise((resolve) => setTimeout(resolve, options.timeout)),
-                    ]);
-                  } catch (error: any) {
-                    if (error.name !== 'TimeoutError') {
-                      throw error;
-                    }
-                    // Continue with screenshot if timeout
-                  }
-
-                  // Set viewport for this resolution
+                  // Set the viewport BEFORE navigating so responsive layouts and
+                  // width-based media queries render at the target resolution.
                   await resolutionPage.setViewportSize({width, height});
+
+                  // Navigate, racing the early-screenshot timeout against the
+                  // hard navigation cap (see navigateWithEarlyTimeout).
+                  await navigateWithEarlyTimeout(
+                    resolutionPage,
+                    normalizedUrl,
+                    options.waitUntil,
+                    options.timeout,
+                    options.navTimeout
+                  );
 
                   // Optional delay before screenshot
                   if (options.delay > 0) {
@@ -597,6 +622,11 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
 
         // If crawling is enabled, extract and queue more URLs
         if (options.crawl) {
+          // The navigation above may have returned early (before `load`), so
+          // give the DOM a bounded chance to finish so links injected late are
+          // still discovered. Never block past the navigation cap.
+          await page.waitForLoadState('load', {timeout: options.navTimeout}).catch(() => {});
+
           console.log(`- Extracting links from ${normalizedUrl}...`);
           const links = await extractLinks(page, normalizedUrl);
           console.log(`- Found ${links.length} links.`);
@@ -692,6 +722,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         crawl: options.crawl,
         maxPages: options.maxPages,
         timeout: options.timeout,
+        navTimeout: options.navTimeout,
         concurrency: options.concurrency,
         retries: options.retries,
         continueOnError: options.continueOnError,
@@ -801,7 +832,7 @@ program
   ) // Default to 50 pages max
   .option(
     '-t, --timeout <ms>',
-    'Early screenshot timeout in milliseconds (defaults to 5000)',
+    'Early screenshot timeout in milliseconds: take the shot once this elapses even if the page is still loading (defaults to 5000)',
     (value) => {
       const parsed = parseInt(value, 10);
       if (isNaN(parsed) || parsed <= 0) {
@@ -810,6 +841,18 @@ program
       return parsed;
     },
     5000
+  )
+  .option(
+    '--nav-timeout <ms>',
+    'Hard navigation timeout in milliseconds: the maximum Playwright will wait for a page load before giving up (defaults to 30000)',
+    (value) => {
+      const parsed = parseInt(value, 10);
+      if (isNaN(parsed) || parsed <= 0) {
+        throw new Error('Navigation timeout must be a positive number in milliseconds');
+      }
+      return parsed;
+    },
+    30000
   )
   .option(
     '--concurrency <n>',
@@ -857,7 +900,7 @@ program
   .option('--fail-fast', 'Stop processing immediately when any error occurs', false)
   .option<'load' | 'domcontentloaded' | 'networkidle' | 'commit'>(
     '--wait-until <state>',
-    'Playwright navigation waitUntil state (load | domcontentloaded | networkidle | commit). Default: networkidle',
+    'Playwright navigation waitUntil state (load | domcontentloaded | networkidle | commit). Default: load',
     (value: string) => {
       const v = value.toLowerCase();
       const allowed = ['load', 'domcontentloaded', 'networkidle', 'commit'];
@@ -866,7 +909,7 @@ program
       }
       return v as any;
     },
-    'networkidle'
+    'load'
   )
   .option(
     '--delay <ms>',
@@ -894,6 +937,7 @@ program
         desktop: boolean;
         mobile: boolean;
         timeout: number;
+        navTimeout: number;
         concurrency: number;
         retries: number;
         excludePattern: string[];
@@ -937,6 +981,7 @@ program
           crawl: mergedOptions.crawl,
           maxPages: mergedOptions.maxPages,
           timeout: mergedOptions.timeout,
+          navTimeout: mergedOptions.navTimeout,
           concurrency: mergedOptions.concurrency,
           retries: mergedOptions.retries,
           excludePatterns: mergedOptions.excludePattern,
