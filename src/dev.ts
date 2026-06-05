@@ -50,6 +50,7 @@ async function main() {
   const maxPages = parseNumber(await ask(rl, 'Max pages (crawl only) [50]: '), 50);
 
   const timeout = parseNumber(await ask(rl, 'Early screenshot timeout ms [5000]: '), 5000);
+  const navTimeout = parseNumber(await ask(rl, 'Navigation timeout ms [30000]: '), 30000);
   const concurrency = parseNumber(await ask(rl, 'Concurrency [3]: '), 3);
   const retries = parseNumber(await ask(rl, 'Retry attempts [2]: '), 2);
 
@@ -89,6 +90,7 @@ async function main() {
     crawl,
     maxPages,
     timeout,
+    navTimeout,
     concurrency,
     retries,
     includePatterns,
@@ -117,6 +119,7 @@ async function main() {
     crawl,
     maxPages,
     timeout,
+    navTimeout,
     concurrency,
     retries,
     includePatterns,

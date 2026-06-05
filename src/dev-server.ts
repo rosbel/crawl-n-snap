@@ -69,6 +69,7 @@ function optionsToArgs(payload: any): string[] {
   if (payload.crawl) args.push('-c');
   if (payload.maxPages != null) args.push('-p', String(payload.maxPages));
   if (payload.timeout != null) args.push('-t', String(payload.timeout));
+  if (payload.navTimeout != null) args.push('--nav-timeout', String(payload.navTimeout));
   if (payload.concurrency != null) args.push('--concurrency', String(payload.concurrency));
   if (payload.retries != null) args.push('-R', String(payload.retries));
   (payload.excludePatterns || []).forEach((p: string) => args.push('-x', p));
