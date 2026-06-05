@@ -74,26 +74,32 @@ Arguments:
   url                      The full URL (including http/https) of the page to screenshot.
 
 Options:
-  -r, --resolution <WxH>   Custom screen resolution (e.g., 1920x1080). Repeatable.
-  -d, --desktop            Capture desktop resolutions (1920x1080)
-  -m, --mobile             Capture mobile resolutions (390x844)
+  -r, --resolution <WxH>   Custom screen resolution (e.g., 1920x1080). Repeatable. Replaces the default.
+  -d, --desktop            Add the desktop preset resolution (1920x1080)
+  -m, --mobile             Add the mobile preset resolution (390x844)
   -o, --output <dir>       Base output directory for screenshots (default: current directory)
   -b, --browser <name>     Browser to use (chromium, firefox, webkit) (default: "chromium")
   -c, --crawl              Enable crawling of all relative links on the website
   -p, --max-pages <n>      Maximum number of pages to crawl (only used with --crawl) (default: 50)
-  -t, --timeout <ms>       Early screenshot timeout in milliseconds (default: 5000, max Playwright timeout: 30000)
+  -t, --timeout <ms>       Early screenshot timeout: take the shot once this elapses even if still loading (default: 5000)
+  --nav-timeout <ms>       Hard navigation timeout: max time to wait for a page load before giving up (default: 30000)
   --concurrency <n>        Maximum number of concurrent screenshot operations (default: 3)
   -R, --retries <n>        Number of retry attempts for failed screenshots (default: 2)
   -x, --exclude-pattern    URL patterns to exclude from crawling (supports wildcards like */admin/*). Repeatable.
   -i, --include-pattern    URL patterns to include when crawling (supports wildcards). Repeatable.
-  --wait-until <state>     Navigation waitUntil (load | domcontentloaded | networkidle | commit) (default: networkidle)
+  --wait-until <state>     Navigation waitUntil (load | domcontentloaded | networkidle | commit) (default: load)
   --delay <ms>             Delay before screenshot after navigation/timeout (ms) (default: 0)
   --no-full-page           Capture only the visible viewport (default is full page)
+  --no-headless            Run the browser in headed mode (show the UI)
   --continue-on-error      Continue processing other URLs/resolutions when errors occur (default: true)
   --fail-fast              Stop processing immediately when any error occurs
   -V, --version            Output the version number
   -h, --help               Display help for command
 ```
+
+> Resolutions: if you pass one or more `-r` values they are used as-is (the
+> default 1920x1080 is **not** added). `--desktop`/`--mobile` add their preset
+> on top of whatever you provide. With no `-r` and no preset, 1920x1080 is used.
 
 ### Examples
 
@@ -137,7 +143,7 @@ npx @rosbel/crawl-n-snap https://example.com --browser firefox --output ./screen
 npx @rosbel/crawl-n-snap https://example.com --timeout 5000
 ```
 
-Note: The tool will attempt to take a screenshot after the specified timeout even if the page is still loading. Playwright has a fixed maximum timeout of 30 seconds for network idle.
+Note: `--timeout` is the _early screenshot_ cutoff — the tool takes the shot once it elapses even if the page is still loading. `--nav-timeout` (default 30000) is the _hard_ cap on how long Playwright waits for a page load before giving up.
 
 #### Use configuration file for project settings
 
@@ -155,9 +161,15 @@ If a `.crawlsnaprc.json` file exists in the current directory or home directory:
   "crawl": true,
   "maxPages": 20,
   "timeout": 7000,
+  "navTimeout": 30000,
   "concurrency": 2,
   "retries": 3,
   "continueOnError": true,
+  "waitUntil": "load",
+  "delay": 0,
+  "fullPage": true,
+  "headless": true,
+  "includePatterns": ["*/products/*"],
   "excludePatterns": ["*/admin/*", "*/login/*"]
 }
 ```
@@ -222,11 +234,17 @@ All CLI options can be specified in the configuration file. CLI options take pre
   "crawl": false,
   "maxPages": 50,
   "timeout": 5000,
+  "navTimeout": 30000,
   "concurrency": 3,
   "retries": 2,
   "continueOnError": true,
+  "waitUntil": "load",
+  "delay": 0,
+  "fullPage": true,
+  "headless": true,
   "desktop": false,
   "mobile": false,
+  "includePatterns": [],
   "excludePatterns": ["*/admin/*", "*/login/*", "*checkout*"]
 }
 ```

@@ -105,58 +105,65 @@ async function loadConfigFile(): Promise<ConfigFile | null> {
   return null;
 }
 
-// Function to merge config file with CLI options (CLI takes precedence)
-function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any {
+// Where a Commander option's value came from (e.g. 'cli', 'default', 'config').
+// Mirrors the return of program.getOptionValueSource(); injected so the merge
+// is unit-testable without depending on Commander's global parse state.
+type GetOptionSource = (name: string) => string | undefined;
+
+// Fallback used when no source information is available (treat everything as
+// at its default, so config values win wherever present).
+const allDefaultSources: GetOptionSource = () => 'default';
+
+// Merge a loaded config file with parsed CLI options. Precedence is:
+//   explicit CLI flag  >  config file value  >  CLI default.
+// `getSource` tells us whether the user actually typed an option (source
+// 'cli') versus it sitting at its default — without it we could not tell an
+// explicit `--timeout 5000` apart from the 5000 default, which previously let
+// the config file override values the user had explicitly set.
+function mergeConfigWithOptions(
+  config: ConfigFile | null,
+  cliOptions: any,
+  getSource: GetOptionSource = allDefaultSources
+): any {
   if (!config) return cliOptions;
 
-  // Merge exclude patterns from both CLI and config
+  // Merge list options from both CLI and config (additive, not override).
   const excludePatterns = [...(cliOptions.excludePattern || []), ...(config.excludePatterns || [])];
   const includePatterns = [...(cliOptions.includePattern || []), ...(config.includePatterns || [])];
 
-  const allowedWaitUntil = ['load', 'domcontentloaded', 'networkidle', 'commit'] as const;
-  const safeWaitUntil = (val: any) =>
-    allowedWaitUntil.includes(val) ? val : (undefined as unknown as never);
+  const allowedWaitUntil = ['load', 'domcontentloaded', 'networkidle', 'commit'];
+  const safeWaitUntil = (val: any) => (allowedWaitUntil.includes(val) ? val : undefined);
+
+  const fromCli = (name: string) => getSource(name) === 'cli';
+  // CLI value if the user set it, else the config value when present, else the
+  // CLI default. `??` (not `||`) so legitimate falsy values like 0 / false from
+  // the config are honored.
+  const pick = <T>(name: string, cliValue: T, configValue: T | undefined): T =>
+    fromCli(name) ? cliValue : (configValue ?? cliValue);
 
   return {
-    resolution:
-      cliOptions.resolution.length === 1 &&
-      cliOptions.resolution[0].width === 1920 &&
-      cliOptions.resolution[0].height === 1080
-        ? config.resolutions?.map(parseResolution) || cliOptions.resolution // Use config if CLI has default
-        : cliOptions.resolution, // Use CLI if custom resolutions provided
-    output: cliOptions.output !== '.' ? cliOptions.output : config.output || cliOptions.output,
-    browser:
-      cliOptions.browser !== 'chromium' ? cliOptions.browser : config.browser || cliOptions.browser,
-    crawl: cliOptions.crawl || config.crawl || false,
-    maxPages:
-      cliOptions.maxPages !== 50 ? cliOptions.maxPages : config.maxPages || cliOptions.maxPages,
-    timeout:
-      cliOptions.timeout !== 5000 ? cliOptions.timeout : config.timeout || cliOptions.timeout,
-    navTimeout:
-      cliOptions.navTimeout !== 30000
-        ? cliOptions.navTimeout
-        : (config.navTimeout ?? cliOptions.navTimeout),
-    concurrency:
-      cliOptions.concurrency !== 3
-        ? cliOptions.concurrency
-        : config.concurrency || cliOptions.concurrency,
-    retries: cliOptions.retries !== 2 ? cliOptions.retries : (config.retries ?? cliOptions.retries),
+    resolution: fromCli('resolution')
+      ? cliOptions.resolution
+      : (config.resolutions?.map(parseResolution) ?? cliOptions.resolution),
+    output: pick('output', cliOptions.output, config.output),
+    browser: pick('browser', cliOptions.browser, config.browser),
+    crawl: pick('crawl', cliOptions.crawl, config.crawl),
+    maxPages: pick('maxPages', cliOptions.maxPages, config.maxPages),
+    timeout: pick('timeout', cliOptions.timeout, config.timeout),
+    navTimeout: pick('navTimeout', cliOptions.navTimeout, config.navTimeout),
+    concurrency: pick('concurrency', cliOptions.concurrency, config.concurrency),
+    retries: pick('retries', cliOptions.retries, config.retries),
     excludePattern: excludePatterns,
     includePattern: includePatterns,
     continueOnError: cliOptions.failFast
       ? false
-      : (cliOptions.continueOnError ?? config.continueOnError ?? true),
-    desktop: cliOptions.desktop || config.desktop || false,
-    mobile: cliOptions.mobile || config.mobile || false,
-    waitUntil:
-      cliOptions.waitUntil !== 'load'
-        ? cliOptions.waitUntil
-        : safeWaitUntil(config.waitUntil) || cliOptions.waitUntil,
-    delay: cliOptions.delay !== 0 ? cliOptions.delay : (config.delay ?? cliOptions.delay),
-    fullPage:
-      typeof cliOptions.fullPage === 'boolean' ? cliOptions.fullPage : (config.fullPage ?? true),
-    headless:
-      typeof cliOptions.headless === 'boolean' ? cliOptions.headless : (config.headless ?? true),
+      : pick('continueOnError', cliOptions.continueOnError, config.continueOnError),
+    desktop: pick('desktop', cliOptions.desktop, config.desktop),
+    mobile: pick('mobile', cliOptions.mobile, config.mobile),
+    waitUntil: pick('waitUntil', cliOptions.waitUntil, safeWaitUntil(config.waitUntil)),
+    delay: pick('delay', cliOptions.delay, config.delay),
+    fullPage: pick('fullPage', cliOptions.fullPage, config.fullPage),
+    headless: pick('headless', cliOptions.headless, config.headless),
   };
 }
 
@@ -261,17 +268,21 @@ async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): 
   return results;
 }
 
-// Helper function to retry operations with exponential backoff
+// Helper function to retry operations with exponential backoff. Returns the
+// operation's value along with how many attempts it actually took (1 = first
+// try succeeded), so callers can report retries truthfully instead of assuming
+// the maximum.
 async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   maxRetries: number,
   baseDelay: number = 1000
-): Promise<T> {
+): Promise<{value: T; attempts: number}> {
   let lastError: Error = new Error('No attempts made');
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await operation();
+      const value = await operation();
+      return {value, attempts: attempt + 1};
     } catch (error: any) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
@@ -388,7 +399,9 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   try {
     new URL(targetUrl); // Validate URL format early
   } catch (error: any) {
-    console.error(`Invalid URL: ${error.message}`);
+    // Fail fast instead of launching a browser and crashing later with a less
+    // helpful error deeper in the run.
+    throw new Error(`Invalid URL "${targetUrl}": ${error.message}`);
   }
 
   // Parse string resolutions to Resolution objects
@@ -570,14 +583,16 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
               return {
                 success: true,
                 resolution: resolutionString,
-                outputPath: result.outputPath,
-                attempts: options.retries + 1,
+                outputPath: result.value.outputPath,
+                // Real number of attempts (1 = succeeded on the first try).
+                attempts: result.attempts,
               };
             } catch (error: any) {
               return {
                 success: false,
                 resolution: resolutionString,
                 error: error.message,
+                // Failure path exhausts every attempt.
                 attempts: options.retries + 1,
               };
             }
@@ -700,7 +715,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
           console.log(`  ${index + 1}. [${error.type}] ${error.url}: ${error.error}`);
         });
       } else {
-        console.log('\nFirst 10 errors (use --continue-on-error=false to stop on first error):');
+        console.log('\nFirst 10 errors (use --fail-fast to stop on the first error):');
         errorSummaries.slice(0, 10).forEach((error, index) => {
           console.log(`  ${index + 1}. [${error.type}] ${error.url}: ${error.error}`);
         });
@@ -798,12 +813,12 @@ program
   .argument('<url>', 'The full URL (including http/https) of the page to screenshot.')
   .option<Resolution[]>(
     '-r, --resolution <WxH>',
-    'Custom screen resolution (e.g., 1920x1080). Repeatable.',
+    'Custom screen resolution (e.g., 1920x1080). Repeatable. If omitted (and no preset), defaults to 1920x1080.',
     collectResolutions,
-    [parseResolution('1920x1080')] // Default if no preset or custom resolution provided
+    [] // Start empty; the default 1920x1080 is applied only when nothing else is provided
   )
-  .option('-d, --desktop', 'Capture desktop resolutions (1920x1080, 1366x768, 1440x900)')
-  .option('-m, --mobile', 'Capture mobile resolutions (375x667, 390x844, 360x640)')
+  .option('-d, --desktop', 'Add the desktop preset resolution (1920x1080)')
+  .option('-m, --mobile', 'Add the mobile preset resolution (390x844)')
   .option('-o, --output <dir>', 'Base output directory for screenshots', '.') // Default to current directory
   .option<SupportedBrowser>(
     '-b, --browser <name>',
@@ -819,7 +834,7 @@ program
   )
   .option('-c, --crawl', 'Enable crawling of all relative links on the website', false)
   .option(
-    '-p, --max-pages <name>',
+    '-p, --max-pages <n>',
     'Maximum number of pages to crawl (only used with --crawl)',
     (value) => {
       const parsed = parseInt(value, 10);
@@ -954,11 +969,23 @@ program
         // Load configuration file first
         const configFile = await loadConfigFile();
 
-        // Merge config file with CLI options (CLI takes precedence)
-        const mergedOptions = mergeConfigWithOptions(configFile, options);
+        // Merge config file with CLI options (explicit CLI flags win over config,
+        // which wins over CLI defaults). Pass Commander's option-source lookup so
+        // the merge can tell an explicit flag apart from a default.
+        const mergedOptions = mergeConfigWithOptions(configFile, options, (name) =>
+          program.getOptionValueSource(name)
+        );
 
-        // Handle device presets
-        let resolutions = [...mergedOptions.resolution]; // Start with merged resolutions
+        // Did the user actually choose resolutions (via -r or the config file)?
+        const resolutionFromCli = program.getOptionValueSource('resolution') === 'cli';
+        const resolutionFromConfig =
+          !resolutionFromCli &&
+          Array.isArray(configFile?.resolutions) &&
+          configFile.resolutions.length > 0;
+        const userChoseResolutions = resolutionFromCli || resolutionFromConfig;
+
+        // Start from the user's explicit resolutions (if any), then layer presets.
+        let resolutions = [...mergedOptions.resolution];
 
         if (mergedOptions.desktop) {
           resolutions = [...resolutions, ...devicePresets.desktop];
@@ -966,6 +993,13 @@ program
 
         if (mergedOptions.mobile) {
           resolutions = [...resolutions, ...devicePresets.mobile];
+        }
+
+        // Fall back to the single default resolution only when the user neither
+        // chose resolutions nor selected a preset — so `--mobile` alone no longer
+        // silently also captures 1920x1080.
+        if (resolutions.length === 0 && !userChoseResolutions) {
+          resolutions = [parseResolution('1920x1080')];
         }
 
         // Remove duplicates (based on width and height)
@@ -1006,6 +1040,18 @@ program
     }
   );
 
+program.addHelpText(
+  'after',
+  `
+Examples:
+  $ crawl-n-snap https://example.com
+  $ crawl-n-snap https://example.com -r 1440x900 -r 390x844
+  $ crawl-n-snap https://example.com --desktop --mobile
+  $ crawl-n-snap https://example.com --crawl --max-pages 25 -x "*/admin/*"
+  $ crawl-n-snap https://example.com --wait-until networkidle --delay 500
+  $ crawl-n-snap https://example.com -o ./shots --no-full-page`
+);
+
 // Only parse args if the script is run directly
 if (require.main === module) {
   program.parseAsync(process.argv).catch((err) => {
@@ -1014,5 +1060,12 @@ if (require.main === module) {
   });
 }
 
-// Export for potential programmatic use (optional)
-export {runScreenshotter, CliOptions, limitConcurrency};
+// Export for potential programmatic use and unit testing.
+export {
+  runScreenshotter,
+  CliOptions,
+  limitConcurrency,
+  retryWithBackoff,
+  mergeConfigWithOptions,
+  GetOptionSource,
+};
