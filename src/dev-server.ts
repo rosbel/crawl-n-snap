@@ -140,6 +140,7 @@ function optionsToArgs(payload: any): string[] {
   (payload.headers || []).forEach((h: string) => args.push('--header', h));
   if (payload.basicAuth) args.push('--basic-auth', String(payload.basicAuth));
   if (payload.storageState) args.push('--storage-state', String(payload.storageState));
+  if (payload.depth != null) args.push('--depth', String(payload.depth));
   return args;
 }
 
