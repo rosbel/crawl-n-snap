@@ -388,14 +388,26 @@ The CI workflow runs on pull requests to the main branch and includes:
 - Code linting
 - Build verification
 
-### Publishing to npm
+### Releasing (Changesets)
 
-Automatic publishing to npm occurs when changes are merged to the `main` branch.
+Versioning and npm publishing are managed with [Changesets](https://github.com/changesets/changesets), so the version is bumped intentionally rather than on every push.
 
-To set up automatic publishing:
+**For contributors** — include a changeset with any user-facing change:
 
-1. Generate an npm token with publishing rights
-2. Add the token as a repository secret named `NPM_TOKEN` in your GitHub repository settings
+```bash
+pnpm changeset
+```
+
+Pick the bump type (patch / minor / major) and write a short summary. Commit the generated file in `.changeset/` with your PR.
+
+**Release flow** — on every push to `main`, the publish workflow either:
+
+1. **Opens/updates a "Version Packages" PR** (when changesets are pending) that bumps `package.json` and updates `CHANGELOG.md`; or
+2. **Publishes to npm** (when that PR is merged and the version has changed) via `changeset publish`, which skips any version already on the registry.
+
+This is why pushing to `main` no longer fails trying to republish an existing version.
+
+**One-time setup:** add a repository secret named `NPM_TOKEN` containing a valid npm **Automation** access token (or a Granular token with read+write to `@rosbel/crawl-n-snap`). An expired/insufficient token surfaces as an `E404` on publish.
 
 ## Contributors
 

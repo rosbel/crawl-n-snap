@@ -5,6 +5,13 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "homepage": "https://github.com/rosbel/crawl-n-snap",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosbel/crawl-n-snap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rosbel/crawl-n-snap/issues"
+  },
   "bin": {
     "crawl-n-snap": "./dist/index.js"
   },
@@ -21,7 +28,10 @@
     "lint:ui": "eslint \"ui/src/**/*.{ts,tsx}\"",
     "test:ui": "vitest run",
     "format": "prettier --write .",
-    "lint-staged": "lint-staged"
+    "lint-staged": "lint-staged",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "keywords": [
     "playwright",
@@ -38,6 +48,7 @@
     "playwright": "^1.42.1"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.27.7",
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.23.0",
     "@types/commander": "^2.12.2",
