@@ -75,6 +75,9 @@ async function main() {
   const delay = parseNumber(await ask(rl, 'Delay before screenshot ms [0]: '), 0);
   const fullPage = parseBool(await ask(rl, 'Full page screenshot? [Y/n]: '), true);
   const headless = !parseBool(await ask(rl, 'Headful (show browser UI)? [y/N]: '), false);
+  const formatInput = (await ask(rl, 'Image format (png|jpeg) [png]: ')) || 'png';
+  const format = formatInput.toLowerCase() === 'jpeg' ? 'jpeg' : 'png';
+  const disableAnimations = parseBool(await ask(rl, 'Disable animations? [y/N]: '), false);
 
   const failFast = parseBool(await ask(rl, 'Fail fast? [y/N]: '), false);
   const continueOnError = failFast
@@ -99,6 +102,8 @@ async function main() {
     delay,
     fullPage,
     headless,
+    format,
+    disableAnimations,
     continueOnError,
     failFast,
   });
@@ -129,6 +134,8 @@ async function main() {
     delay,
     fullPage,
     headless,
+    format: format as 'png' | 'jpeg',
+    disableAnimations,
   };
 
   await runScreenshotter(url, options);

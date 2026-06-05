@@ -91,6 +91,12 @@ Options:
   --delay <ms>             Delay before screenshot after navigation/timeout (ms) (default: 0)
   --no-full-page           Capture only the visible viewport (default is full page)
   --no-headless            Run the browser in headed mode (show the UI)
+  --format <type>          Image format: png or jpeg (default: png)
+  --quality <1-100>        JPEG quality 1-100 (only used with --format jpeg)
+  --selector <css>         Capture only the element matching this CSS selector (must match exactly one)
+  --clip <x,y,w,h>         Capture only a fixed region of the page (e.g. 0,0,800,600)
+  --wait-for-selector <css>  Wait for this CSS selector before capturing
+  --disable-animations     Freeze CSS animations/transitions for stable screenshots
   --continue-on-error      Continue processing other URLs/resolutions when errors occur (default: true)
   --fail-fast              Stop processing immediately when any error occurs
   -V, --version            Output the version number
@@ -197,6 +203,29 @@ npx @rosbel/crawl-n-snap https://example.com \
 ```bash
 npx @rosbel/crawl-n-snap https://example.com --fail-fast
 ```
+
+#### Capture options (format, element, region, stability)
+
+```bash
+# Smaller files: JPEG at quality 80
+npx @rosbel/crawl-n-snap https://example.com --format jpeg --quality 80
+
+# Capture just one component (must match exactly one element)
+npx @rosbel/crawl-n-snap https://example.com --selector "#hero"
+
+# Capture a fixed region (x, y, width, height)
+npx @rosbel/crawl-n-snap https://example.com --clip 0,0,1200,630
+
+# Wait for content and freeze animations for a deterministic shot
+npx @rosbel/crawl-n-snap https://example.com \
+  --wait-for-selector ".loaded" \
+  --disable-animations
+```
+
+Notes:
+
+- `--selector` and `--clip` are mutually exclusive, and both take precedence over `--full-page`.
+- `--quality` only applies to `--format jpeg`.
 
 ## Output Structure
 

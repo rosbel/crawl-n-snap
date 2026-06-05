@@ -38,6 +38,19 @@ interface CliOptions {
   delay: number;
   fullPage: boolean;
   headless: boolean;
+  format: 'png' | 'jpeg';
+  quality?: number;
+  selector?: string;
+  clip?: ClipRegion;
+  waitForSelector?: string;
+  disableAnimations: boolean;
+}
+
+interface ClipRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface ErrorSummary {
@@ -66,6 +79,32 @@ interface ConfigFile {
   delay?: number;
   fullPage?: boolean;
   headless?: boolean;
+  format?: 'png' | 'jpeg' | string;
+  quality?: number;
+  selector?: string;
+  clip?: string;
+  waitForSelector?: string;
+  disableAnimations?: boolean;
+}
+
+// Parse a --clip value "x,y,width,height" into a region. x/y must be >= 0 and
+// width/height > 0.
+function parseClip(value: string): ClipRegion {
+  const parts = value.split(',').map((p) => p.trim());
+  if (parts.length !== 4) {
+    throw new Error(`Invalid --clip "${value}". Use x,y,width,height (e.g. 0,0,800,600).`);
+  }
+  const [x, y, width, height] = parts.map((p) => Number(p));
+  if (
+    [x, y, width, height].some((n) => !Number.isFinite(n)) ||
+    x < 0 ||
+    y < 0 ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    throw new Error(`Invalid --clip "${value}". x,y must be >= 0 and width,height > 0.`);
+  }
+  return {x, y, width, height};
 }
 
 // --- Configuration File Support ---
@@ -164,6 +203,16 @@ function mergeConfigWithOptions(
     delay: pick('delay', cliOptions.delay, config.delay),
     fullPage: pick('fullPage', cliOptions.fullPage, config.fullPage),
     headless: pick('headless', cliOptions.headless, config.headless),
+    format: pick('format', cliOptions.format, config.format),
+    quality: pick('quality', cliOptions.quality, config.quality),
+    selector: pick('selector', cliOptions.selector, config.selector),
+    clip: pick('clip', cliOptions.clip, config.clip),
+    waitForSelector: pick('waitForSelector', cliOptions.waitForSelector, config.waitForSelector),
+    disableAnimations: pick(
+      'disableAnimations',
+      cliOptions.disableAnimations,
+      config.disableAnimations
+    ),
   };
 }
 
@@ -416,6 +465,20 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   console.log(
     `Wait Until: ${options.waitUntil}; Delay before screenshot: ${options.delay}ms; Full Page: ${options.fullPage}`
   );
+  const captureMode = options.selector
+    ? `element (${options.selector})`
+    : options.clip
+      ? `clip (${options.clip.x},${options.clip.y},${options.clip.width},${options.clip.height})`
+      : options.fullPage
+        ? 'full page'
+        : 'viewport';
+  const qualityInfo =
+    options.format === 'jpeg' && options.quality != null ? ` (quality ${options.quality})` : '';
+  console.log(
+    `Format: ${options.format}${qualityInfo}; Capture: ${captureMode}` +
+      `${options.disableAnimations ? '; animations disabled' : ''}` +
+      `${options.waitForSelector ? `; wait-for: ${options.waitForSelector}` : ''}`
+  );
   console.log(`Headless: ${options.headless}`);
   console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
   if (options.crawl) {
@@ -556,6 +619,20 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
                     options.navTimeout
                   );
 
+                  // Optionally wait for a specific element to appear before
+                  // capturing (more reliable than a fixed --delay).
+                  if (options.waitForSelector) {
+                    try {
+                      await resolutionPage.waitForSelector(options.waitForSelector, {
+                        timeout: options.navTimeout,
+                      });
+                    } catch {
+                      throw new Error(
+                        `Timed out waiting for selector "${options.waitForSelector}"`
+                      );
+                    }
+                  }
+
                   // Optional delay before screenshot
                   if (options.delay > 0) {
                     await new Promise((resolve) => setTimeout(resolve, options.delay));
@@ -566,12 +643,48 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
                   const sanitizedPath = sanitizePath(url.pathname);
                   const sanitizedQ = sanitizeQuery(url.search);
 
-                  // Generate filename
-                  const filename = `${resolutionString}-${sanitizedPath}${sanitizedQ ? `__${sanitizedQ}` : ''}.png`;
+                  // Generate filename (extension follows the chosen format)
+                  const ext = options.format === 'jpeg' ? 'jpg' : 'png';
+                  const filename = `${resolutionString}-${sanitizedPath}${sanitizedQ ? `__${sanitizedQ}` : ''}.${ext}`;
                   const outputPath = path.join(screenshotBaseDir, filename);
 
-                  // Take screenshot
-                  await resolutionPage.screenshot({path: outputPath, fullPage: options.fullPage});
+                  // Common screenshot options. Quality only applies to jpeg.
+                  const shotOptions: Parameters<typeof resolutionPage.screenshot>[0] = {
+                    path: outputPath,
+                    type: options.format,
+                  };
+                  if (options.format === 'jpeg' && options.quality != null) {
+                    shotOptions.quality = options.quality;
+                  }
+                  if (options.disableAnimations) {
+                    shotOptions.animations = 'disabled';
+                  }
+
+                  // Capture a single element, a fixed region, or the page.
+                  if (options.selector) {
+                    const locator = resolutionPage.locator(options.selector);
+                    // waitFor auto-waits and tolerates an in-flight navigation
+                    // (the nav may have returned early), so the DOM is committed
+                    // before we read it. A timeout here means "no such element".
+                    try {
+                      await locator
+                        .first()
+                        .waitFor({state: 'attached', timeout: options.navTimeout});
+                    } catch {
+                      throw new Error(`No element matched selector "${options.selector}"`);
+                    }
+                    const count = await locator.count();
+                    if (count > 1) {
+                      throw new Error(
+                        `Selector "${options.selector}" matched ${count} elements; expected exactly one`
+                      );
+                    }
+                    await locator.screenshot(shotOptions);
+                  } else if (options.clip) {
+                    await resolutionPage.screenshot({...shotOptions, clip: options.clip});
+                  } else {
+                    await resolutionPage.screenshot({...shotOptions, fullPage: options.fullPage});
+                  }
 
                   return {outputPath};
                 } finally {
@@ -745,6 +858,12 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         delay: options.delay,
         fullPage: options.fullPage,
         headless: options.headless,
+        format: options.format,
+        quality: options.quality,
+        selector: options.selector,
+        clip: options.clip,
+        waitForSelector: options.waitForSelector,
+        disableAnimations: options.disableAnimations,
         includePatterns: options.includePatterns,
         excludePatterns: options.excludePatterns,
         resolutions: parsedResolutions.map((r) => `${r.width}x${r.height}`),
@@ -940,6 +1059,39 @@ program
   )
   .option('--no-full-page', 'Capture only the visible viewport (default is full page).')
   .option('--no-headless', 'Run browser in headed mode (show UI).')
+  .option<'png' | 'jpeg'>(
+    '--format <type>',
+    'Image format: png or jpeg (default: png)',
+    (value: string) => {
+      const v = value.toLowerCase();
+      if (v !== 'png' && v !== 'jpeg' && v !== 'jpg') {
+        throw new Error('Invalid format. Choose from: png, jpeg');
+      }
+      return (v === 'jpg' ? 'jpeg' : v) as 'png' | 'jpeg';
+    },
+    'png'
+  )
+  .option('--quality <1-100>', 'JPEG quality 1-100 (only used with --format jpeg)', (value) => {
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed) || parsed < 1 || parsed > 100) {
+      throw new Error('Quality must be a number between 1 and 100');
+    }
+    return parsed;
+  })
+  .option(
+    '--selector <css>',
+    'Capture only the element matching this CSS selector (must match exactly one)'
+  )
+  .option(
+    '--clip <x,y,width,height>',
+    'Capture only a fixed region of the page (e.g. 0,0,800,600)',
+    (value: string) => {
+      parseClip(value); // validate eagerly; surfaces a clear error
+      return value;
+    }
+  )
+  .option('--wait-for-selector <css>', 'Wait for this CSS selector before capturing')
+  .option('--disable-animations', 'Freeze CSS animations/transitions for stable screenshots', false)
   .action(
     async (
       url: string,
@@ -963,6 +1115,12 @@ program
         delay: number;
         fullPage: boolean;
         headless: boolean;
+        format: 'png' | 'jpeg';
+        quality?: number;
+        selector?: string;
+        clip?: string;
+        waitForSelector?: string;
+        disableAnimations: boolean;
       }
     ) => {
       try {
@@ -1007,6 +1165,15 @@ program
           new Map(resolutions.map((r) => [`${r.width}x${r.height}`, r])).values()
         );
 
+        // --selector and --clip both restrict what is captured; only one makes
+        // sense at a time.
+        if (mergedOptions.selector && mergedOptions.clip) {
+          throw new Error('--selector and --clip cannot be used together.');
+        }
+        if (mergedOptions.format !== 'jpeg' && mergedOptions.quality != null) {
+          console.warn('Note: --quality only applies to --format jpeg; ignoring for png.');
+        }
+
         // Map merged options to our interface
         const mappedOptions: CliOptions = {
           resolutions: uniqueResolutions.map((r) => `${r.width}x${r.height}`),
@@ -1025,6 +1192,12 @@ program
           delay: mergedOptions.delay,
           fullPage: mergedOptions.fullPage,
           headless: mergedOptions.headless,
+          format: mergedOptions.format,
+          quality: mergedOptions.quality,
+          selector: mergedOptions.selector,
+          clip: mergedOptions.clip ? parseClip(mergedOptions.clip) : undefined,
+          waitForSelector: mergedOptions.waitForSelector,
+          disableAnimations: mergedOptions.disableAnimations,
         };
 
         // Basic URL validation before passing to the main function
@@ -1068,4 +1241,5 @@ export {
   retryWithBackoff,
   mergeConfigWithOptions,
   GetOptionSource,
+  parseClip,
 };
