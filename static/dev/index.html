@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>crawl-n-snap dev page</title>
+    <style>
+      body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif; margin: 2rem; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+      a { color: #0b6; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <h1>crawl-n-snap Dev Page</h1>
+    <p>This page is for local screenshots during development.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Root</h3>
+        <p><a href="/static/dev/">/static/dev/</a></p>
+      </div>
+      <div class="card">
+        <h3>Products</h3>
+        <ul>
+          <li><a href="./product.html?id=1">Product 1</a></li>
+          <li><a href="./product.html?id=2">Product 2</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Admin</h3>
+        <p><a href="./admin/dashboard.html">Admin Dashboard</a></p>
+      </div>
+    </div>
+
+    <p>
+      Try include/exclude patterns:
+      <code>-i "*product*" -x "*admin*"</code>
+    </p>
+  </body>
+  </html>
+

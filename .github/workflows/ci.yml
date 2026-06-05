@@ -22,10 +22,16 @@ jobs:
         with:
           version: 8
 
-      - name: Install dependencies
+      - name: Install dependencies (root)
         run: pnpm install
 
-      - name: Build
+      - name: Install dependencies (ui)
+        run: pnpm -C ui install
+
+      - name: Build UI
+        run: pnpm -C ui build
+
+      - name: Build CLI
         run: pnpm run build
 
       - name: Run tests
@@ -48,8 +54,11 @@ jobs:
         with:
           version: 8
 
-      - name: Install dependencies
+      - name: Install dependencies (root)
         run: pnpm install
+
+      - name: Install dependencies (ui)
+        run: pnpm -C ui install
 
       - name: Lint
         run: pnpm run lint
