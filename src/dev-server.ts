@@ -133,6 +133,13 @@ function optionsToArgs(payload: any): string[] {
   if (payload.clip) args.push('--clip', String(payload.clip));
   if (payload.waitForSelector) args.push('--wait-for-selector', String(payload.waitForSelector));
   if (payload.disableAnimations) args.push('--disable-animations');
+  if (payload.scale != null) args.push('--scale', String(payload.scale));
+  if (payload.colorScheme) args.push('--color-scheme', String(payload.colorScheme));
+  if (payload.userAgent) args.push('--user-agent', String(payload.userAgent));
+  if (payload.device) args.push('--device', String(payload.device));
+  (payload.headers || []).forEach((h: string) => args.push('--header', h));
+  if (payload.basicAuth) args.push('--basic-auth', String(payload.basicAuth));
+  if (payload.storageState) args.push('--storage-state', String(payload.storageState));
   return args;
 }
 
