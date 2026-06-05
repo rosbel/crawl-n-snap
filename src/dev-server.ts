@@ -81,6 +81,12 @@ function optionsToArgs(payload: any): string[] {
   if (payload.delay != null) args.push('--delay', String(payload.delay));
   if (payload.fullPage === false) args.push('--no-full-page');
   if (payload.headless === false) args.push('--no-headless');
+  if (payload.format) args.push('--format', String(payload.format));
+  if (payload.quality != null) args.push('--quality', String(payload.quality));
+  if (payload.selector) args.push('--selector', String(payload.selector));
+  if (payload.clip) args.push('--clip', String(payload.clip));
+  if (payload.waitForSelector) args.push('--wait-for-selector', String(payload.waitForSelector));
+  if (payload.disableAnimations) args.push('--disable-animations');
   return args;
 }
 
