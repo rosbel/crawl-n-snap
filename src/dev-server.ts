@@ -28,19 +28,64 @@ interface RunRecord {
 
 const runs = new Map<string, RunRecord>();
 
+// --- Safety limits -------------------------------------------------------
+// Files served/opened by the dev server are constrained to this root (the
+// directory the server was started from), preventing path traversal and the
+// opening of arbitrary files anywhere on the machine.
+const SERVE_ROOT = process.cwd();
+const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const MAX_BODY_BYTES = 256 * 1024; // reject larger request bodies
+const MAX_ACTIVE_RUNS = 8; // cap concurrent spawned CLI processes
+const MAX_FINISHED_RUNS = 50; // evict oldest finished runs beyond this
+
+// True if `target` resolves to `root` itself or a path inside it. Uses
+// path.relative instead of a string prefix check so that a sibling directory
+// like `<root>-secret` is correctly rejected for root `<root>`.
+function isWithinRoot(root: string, target: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel));
+}
+
+// State-changing requests must originate from the local dev UI, not an
+// arbitrary cross-site page in the user's browser. Browsers send Sec-Fetch-Site
+// (we allow same-origin/same-site/none); when absent we fall back to checking
+// that no foreign Origin header is present.
+function isLocalRequest(req: http.IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string') {
+    return site === 'same-origin' || site === 'same-site' || site === 'none';
+  }
+  const origin = req.headers.origin;
+  if (!origin) return true; // non-browser client (curl, the Vite proxy)
+  try {
+    const host = new URL(origin).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
 function json(res: http.ServerResponse, status: number, body: any) {
   const text = JSON.stringify(body);
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
   });
   res.end(text);
 }
 
 function parseBody(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(c));
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       const text = Buffer.concat(chunks).toString('utf8');
       try {
@@ -49,6 +94,7 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
         resolve({});
       }
     });
+    req.on('error', () => reject(new Error('request error')));
   });
 }
 
@@ -168,24 +214,45 @@ function startRun(body: any): RunRecord {
       startedAt: rec.startedAt,
       finishedAt: rec.finishedAt || null,
     });
+    evictOldFinishedRuns();
   });
 
   return rec;
 }
 
+// Keep memory bounded: drop the oldest finished runs once we exceed the cap.
+// Running runs are never evicted.
+function evictOldFinishedRuns() {
+  const finished = Array.from(runs.values())
+    .filter((r) => r.status !== 'running')
+    .sort((a, b) => (a.finishedAt ?? a.startedAt) - (b.finishedAt ?? b.startedAt));
+  for (let i = 0; i < finished.length - MAX_FINISHED_RUNS; i++) {
+    runs.delete(finished[i].id);
+  }
+}
+
+function activeRunCount(): number {
+  let n = 0;
+  for (const r of runs.values()) if (r.status === 'running') n++;
+  return n;
+}
+
 const server = http.createServer(async (req, res) => {
-  // CORS preflight
+  // No wildcard CORS: the dev UI reaches this server through the Vite proxy
+  // (same-origin), so cross-origin browser access is intentionally not allowed.
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
+    res.writeHead(204);
     return res.end();
   }
 
   const url = parse(req.url || '', true);
   const pathname = url.pathname || '';
+
+  // Reject state-changing requests that a malicious cross-site page might make.
+  const isMutating = req.method === 'POST' || req.method === 'DELETE' || req.method === 'PUT';
+  if (isMutating && !isLocalRequest(req)) {
+    return json(res, 403, {error: 'cross-site request blocked'});
+  }
 
   if (req.method === 'GET' && pathname === '/api/health') {
     return json(res, 200, {ok: true});
@@ -223,8 +290,25 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && pathname === '/api/run') {
-    const body = await parseBody(req);
+    let body: any;
+    try {
+      body = await parseBody(req);
+    } catch {
+      return json(res, 413, {error: 'request body too large'});
+    }
     if (!body.url) return json(res, 400, {error: 'url required'});
+    // Only spawn the CLI for real web targets.
+    try {
+      const scheme = new URL(String(body.url)).protocol;
+      if (scheme !== 'http:' && scheme !== 'https:') {
+        return json(res, 400, {error: 'url must be http(s)'});
+      }
+    } catch {
+      return json(res, 400, {error: 'invalid url'});
+    }
+    if (activeRunCount() >= MAX_ACTIVE_RUNS) {
+      return json(res, 429, {error: `too many active runs (max ${MAX_ACTIVE_RUNS})`});
+    }
     const rec = startRun(body);
     return json(res, 200, {runId: rec.id});
   }
@@ -246,30 +330,30 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // Serve static file (screenshots/manifests). Limited to within cwd for dev safety.
+  // Serve screenshot images, constrained to within the serve root and to image
+  // file types only.
   if (req.method === 'GET' && pathname === '/api/file') {
     const q = parse(req.url || '', true).query;
     const p = (q.path as string) || '';
     if (!p) return json(res, 400, {error: 'path required'});
-    const root = process.cwd();
     const abs = path.resolve(p);
-    if (!abs.startsWith(root)) {
+    if (!isWithinRoot(SERVE_ROOT, abs)) {
       return json(res, 403, {error: 'forbidden'});
     }
-    if (!fs.existsSync(abs)) return json(res, 404, {error: 'not found'});
     const ext = path.extname(abs).toLowerCase();
+    if (!ALLOWED_IMAGE_EXTS.has(ext)) {
+      return json(res, 403, {error: 'only image files may be served'});
+    }
+    if (!fs.existsSync(abs)) return json(res, 404, {error: 'not found'});
     const type =
       ext === '.png'
         ? 'image/png'
         : ext === '.jpg' || ext === '.jpeg'
           ? 'image/jpeg'
-          : ext === '.webp'
-            ? 'image/webp'
-            : 'application/octet-stream';
+          : 'image/webp';
     res.writeHead(200, {
       'Content-Type': type,
       'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
     });
     const stream = fs.createReadStream(abs);
     stream.pipe(res);
@@ -286,6 +370,9 @@ const server = http.createServer(async (req, res) => {
     const rec = runs.get(id);
     if (!rec) return json(res, 404, {error: 'not found'});
     if (!rec.manifestPath) return json(res, 404, {error: 'manifest not available'});
+    if (!isWithinRoot(SERVE_ROOT, path.resolve(rec.manifestPath))) {
+      return json(res, 403, {error: 'forbidden'});
+    }
     try {
       const content = fs.readFileSync(rec.manifestPath, 'utf8');
       const dl = (parse(req.url || '', true).query.download ?? '').toString();
@@ -293,11 +380,10 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
           'Content-Disposition': `attachment; filename="run-${id}.json"`,
-          'Access-Control-Allow-Origin': '*',
         });
         return res.end(content);
       }
-      res.writeHead(200, {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'});
+      res.writeHead(200, {'Content-Type': 'application/json'});
       return res.end(content);
     } catch (e: any) {
       return json(res, 500, {error: String(e?.message || e)});
@@ -305,13 +391,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && pathname === '/api/open') {
-    const body = await parseBody(req);
+    let body: any;
+    try {
+      body = await parseBody(req);
+    } catch {
+      return json(res, 413, {error: 'request body too large'});
+    }
     const p = String(body.path || '');
     const mode = (body.mode as 'file' | 'dir' | 'reveal') || 'file';
     if (!p) return json(res, 400, {error: 'path required'});
 
     const abs = path.resolve(p);
-    // basic safety: ensure path exists
+    // Only open paths inside the serve root — never arbitrary files/apps on the
+    // machine.
+    if (!isWithinRoot(SERVE_ROOT, abs)) {
+      return json(res, 403, {error: 'forbidden'});
+    }
+    // ensure path exists
     if (!fs.existsSync(abs)) return json(res, 404, {error: 'path not found'});
 
     const isDir = fs.statSync(abs).isDirectory();
@@ -361,7 +457,6 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     });
 
     const send = (event: string, data: any) => {
@@ -412,9 +507,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 const PORT = Number(process.env.DEV_API_PORT || 3001);
-server.listen(PORT, () => {
-  console.log(`Dev API server listening on http://localhost:${PORT}`);
-});
+
+// Bind to loopback only so the dev server is never exposed on the LAN, and
+// only start listening when run directly (so importing this module in tests
+// does not bind a port).
+if (require.main === module) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`Dev API server listening on http://127.0.0.1:${PORT}`);
+  });
+}
+
+export {isWithinRoot, server};
 
 function broadcast(rec: RunRecord, event: string, data: any) {
   for (const sub of rec.subscribers) {
