@@ -223,24 +223,31 @@ function createErrorSummary(url: string, error: any): ErrorSummary {
 
 // --- Main Logic ---
 
-// Helper function to limit concurrency using a semaphore-like approach
+// Helper function to limit concurrency using a semaphore-like approach.
+// Runs at most `limit` tasks at once, preserves input order in the returned
+// results array, and waits for every task to settle before resolving.
 async function limitConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-  const results: T[] = [];
-  const executing: Promise<void>[] = [];
+  const results: T[] = new Array(tasks.length);
+  const maxInFlight = Math.max(1, Math.floor(limit));
+  const executing = new Set<Promise<void>>();
 
-  for (const task of tasks) {
-    const promise = task().then((result) => {
-      results.push(result);
+  for (let idx = 0; idx < tasks.length; idx++) {
+    // Write each result into its input slot so ordering is deterministic
+    // regardless of which task finishes first.
+    const run = (async () => {
+      results[idx] = await tasks[idx]();
+    })();
+
+    // Track the in-flight promise and ensure it removes itself when settled,
+    // so the `executing` set accurately reflects the live workers.
+    const tracked: Promise<void> = run.finally(() => {
+      executing.delete(tracked);
     });
+    executing.add(tracked);
 
-    executing.push(promise);
-
-    if (executing.length >= limit) {
+    // Once we hit the cap, wait for at least one worker to free a slot.
+    if (executing.size >= maxInFlight) {
       await Promise.race(executing);
-      executing.splice(
-        executing.findIndex((p) => p === promise),
-        1
-      );
     }
   }
 
@@ -963,4 +970,4 @@ if (require.main === module) {
 }
 
 // Export for potential programmatic use (optional)
-export {runScreenshotter, CliOptions};
+export {runScreenshotter, CliOptions, limitConcurrency};
