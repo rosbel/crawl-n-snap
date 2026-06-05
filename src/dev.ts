@@ -137,6 +137,8 @@ async function main() {
     format: format as 'png' | 'jpeg',
     disableAnimations,
     scale: 1,
+    json: false,
+    color: true,
   };
 
   await runScreenshotter(url, options);

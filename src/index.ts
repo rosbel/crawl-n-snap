@@ -51,6 +51,9 @@ interface CliOptions {
   headers?: Record<string, string>;
   basicAuth?: {username: string; password: string};
   storageState?: string;
+  depth?: number;
+  json: boolean;
+  color: boolean;
 }
 
 interface ClipRegion {
@@ -99,6 +102,7 @@ interface ConfigFile {
   headers?: string[];
   basicAuth?: string;
   storageState?: string;
+  depth?: number;
 }
 
 // Parse a --clip value "x,y,width,height" into a region. x/y must be >= 0 and
@@ -261,6 +265,7 @@ function mergeConfigWithOptions(
     header: [...(cliOptions.header || []), ...(config.headers || [])],
     basicAuth: pick('basicAuth', cliOptions.basicAuth, config.basicAuth),
     storageState: pick('storageState', cliOptions.storageState, config.storageState),
+    depth: pick('depth', cliOptions.depth, config.depth),
   };
 }
 
@@ -501,6 +506,17 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     throw new Error(`Invalid URL "${targetUrl}": ${error.message}`);
   }
 
+  // In --json mode, keep stdout clean for the final manifest by routing all
+  // human-readable logs to stderr. Restored in the finally block.
+  const originalConsoleLog = console.log;
+  if (options.json) {
+    console.log = (...args: any[]) => console.error(...args);
+  }
+  // Status markers: unicode when color is on, plain ASCII otherwise (pipes,
+  // CI logs, --no-color).
+  const okMark = options.color ? '✓' : '[OK]';
+  const failMark = options.color ? '✗' : '[FAIL]';
+
   // Parse string resolutions to Resolution objects
   const parsedResolutions: Resolution[] = options.resolutions.map((res) => parseResolution(res));
 
@@ -545,6 +561,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
   console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
   if (options.crawl) {
     console.log(`Max Pages: ${options.maxPages}`);
+    if (options.depth != null) console.log(`Max Depth: ${options.depth}`);
     if (options.excludePatterns.length > 0) {
       console.log(`Exclude Patterns: ${options.excludePatterns.join(', ')}`);
     }
@@ -602,9 +619,11 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
           viewport: {width: r.width, height: r.height},
         }));
 
-    // Track visited URLs to avoid loops (using normalized URLs)
+    // Track visited URLs to avoid loops (using normalized URLs). Each pending
+    // entry carries its crawl depth (the seed URL is depth 0) so --depth can
+    // bound how far link-following goes.
     const visitedUrls = new Set<string>();
-    const pendingUrls: string[] = [targetUrl];
+    const pendingUrls: Array<{url: string; depth: number}> = [{url: targetUrl, depth: 0}];
     let processedCount = 0;
     const errorSummaries: ErrorSummary[] = [];
     const runStartedAt = new Date();
@@ -652,7 +671,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
 
     // Process URLs until we run out or hit the limit
     while (pendingUrls.length > 0 && processedCount < options.maxPages) {
-      const currentUrl = pendingUrls.shift()!;
+      const {url: currentUrl, depth: currentDepth} = pendingUrls.shift()!;
       const normalizedUrl = normalizeUrl(currentUrl);
 
       // Skip if already visited
@@ -818,12 +837,12 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
           if (result.success) {
             const retryInfo = result.attempts > 1 ? ` (after ${result.attempts - 1} retries)` : '';
             console.log(
-              `✓ ${result.resolution} screenshot saved: ${result.outputPath}${retryInfo}`
+              `${okMark} ${result.resolution} screenshot saved: ${result.outputPath}${retryInfo}`
             );
             successCount++;
           } else {
             console.error(
-              `✗ ${result.resolution} failed after ${result.attempts} attempts: ${result.error}`
+              `${failMark} ${result.resolution} failed after ${result.attempts} attempts: ${result.error}`
             );
             failureCount++;
           }
@@ -843,8 +862,10 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         console.log(`\nScreenshot summary: ${successCount} successful, ${failureCount} failed`);
         if (failureCount > 0) anyFailures = true;
 
-        // If crawling is enabled, extract and queue more URLs
-        if (options.crawl) {
+        // If crawling is enabled, extract and queue more URLs — unless we've
+        // reached the configured depth limit (depth is measured in link hops
+        // from the seed URL).
+        if (options.crawl && (options.depth == null || currentDepth < options.depth)) {
           // The navigation above may have returned early (before `load`), so
           // give the DOM a bounded chance to finish so links injected late are
           // still discovered. Never block past the navigation cap.
@@ -862,7 +883,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
               !isUrlExcluded(normalizedLink, options.excludePatterns) &&
               isUrlIncluded(normalizedLink, options.includePatterns)
             ) {
-              pendingUrls.push(normalizedLink);
+              pendingUrls.push({url: normalizedLink, depth: currentDepth + 1});
             } else if (isUrlExcluded(normalizedLink, options.excludePatterns)) {
               console.log(`  - Excluding URL (matches pattern): ${normalizedLink}`);
             } else if (!isUrlIncluded(normalizedLink, options.includePatterns)) {
@@ -930,7 +951,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         console.log(`  ... and ${errorSummaries.length - 10} more errors`);
       }
     } else {
-      console.log('\n✓ No errors occurred during processing.');
+      console.log(`\n${okMark} No errors occurred during processing.`);
     }
 
     // Write run manifest
@@ -944,6 +965,7 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         output: options.output,
         crawl: options.crawl,
         maxPages: options.maxPages,
+        depth: options.depth,
         timeout: options.timeout,
         navTimeout: options.navTimeout,
         concurrency: options.concurrency,
@@ -983,6 +1005,12 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
     console.log(`\nRun manifest written: ${manifestPath}`);
 
+    // In --json mode the manifest is the sole stdout output (human logs went to
+    // stderr), so `crawl-n-snap ... --json | jq` works.
+    if (options.json) {
+      originalConsoleLog(JSON.stringify({...manifest, manifestPath}, null, 2));
+    }
+
     if (anyFailures || errorSummaries.length > 0) {
       process.exitCode = 1;
     }
@@ -1003,6 +1031,8 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
       await browser.close();
       console.log('Browser closed.');
     }
+    // Restore stdout logging if we redirected it for --json.
+    console.log = originalConsoleLog;
   }
 }
 
@@ -1242,6 +1272,20 @@ program
     '--storage-state <file.json>',
     'Load cookies/localStorage from a Playwright storageState file'
   )
+  .option(
+    '--depth <n>',
+    'Maximum crawl depth in link hops from the seed URL (only used with --crawl). Default: unlimited',
+    (value) => {
+      const parsed = parseInt(value, 10);
+      if (isNaN(parsed) || parsed < 0) {
+        throw new Error('Depth must be a non-negative number');
+      }
+      return parsed;
+    }
+  )
+  .option('--dry-run', 'Print the resolved run plan and exit without launching a browser', false)
+  .option('--json', 'Output the run manifest as JSON on stdout (human logs go to stderr)', false)
+  .option('--no-color', 'Disable colored/unicode status markers (use plain ASCII)')
   .action(
     async (
       url: string,
@@ -1278,6 +1322,10 @@ program
         header: string[];
         basicAuth?: string;
         storageState?: string;
+        depth?: number;
+        dryRun: boolean;
+        json: boolean;
+        color: boolean;
       }
     ) => {
       try {
@@ -1369,10 +1417,33 @@ program
           headers: headersMap,
           basicAuth: mergedOptions.basicAuth ? parseBasicAuth(mergedOptions.basicAuth) : undefined,
           storageState: mergedOptions.storageState,
+          depth: mergedOptions.depth,
+          json: options.json,
+          color: options.color,
         };
 
         // Basic URL validation before passing to the main function
         new URL(url);
+
+        // --dry-run: show the resolved plan and exit without launching a browser.
+        if (options.dryRun) {
+          const plan = {
+            target: url,
+            outputBase: path.resolve(mappedOptions.output, 'generated-screenshots'),
+            browser: mappedOptions.browser,
+            resolutions: mappedOptions.device ? [mappedOptions.device] : mappedOptions.resolutions,
+            format: mappedOptions.format,
+            crawl: mappedOptions.crawl,
+            maxPages: mappedOptions.crawl ? mappedOptions.maxPages : undefined,
+            depth: mappedOptions.crawl ? (mappedOptions.depth ?? 'unlimited') : undefined,
+            includePatterns: mappedOptions.includePatterns,
+            excludePatterns: mappedOptions.excludePatterns,
+          };
+          console.log('Dry run — no browser launched. Resolved plan:');
+          console.log(JSON.stringify(plan, null, 2));
+          return;
+        }
+
         await runScreenshotter(url, mappedOptions);
       } catch (error: any) {
         console.error(`\nError: ${error.message}`);

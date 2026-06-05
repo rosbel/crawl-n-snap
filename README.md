@@ -104,6 +104,10 @@ Options:
   --header <name:value>    Extra HTTP header to send. Repeatable.
   --basic-auth <user:pass> HTTP Basic auth credentials for gated pages
   --storage-state <file>   Load cookies/localStorage from a Playwright storageState file
+  --depth <n>              Maximum crawl depth in link hops from the seed (with --crawl). Default: unlimited
+  --dry-run                Print the resolved run plan and exit without launching a browser
+  --json                   Output the run manifest as JSON on stdout (human logs go to stderr)
+  --no-color               Disable colored/unicode status markers (plain ASCII)
   --continue-on-error      Continue processing other URLs/resolutions when errors occur (default: true)
   --fail-fast              Stop processing immediately when any error occurs
   -V, --version            Output the version number
@@ -253,6 +257,22 @@ npx @rosbel/crawl-n-snap https://example.com --storage-state ./auth.json
 ```
 
 Secrets (`--basic-auth`, `--header`, `--storage-state`) are never printed to the console or written to `run.json` (only a boolean/count is recorded).
+
+#### Crawl depth and scripting-friendly output
+
+```bash
+# Crawl only the seed page and pages it links to directly (1 hop)
+npx @rosbel/crawl-n-snap https://example.com --crawl --depth 1
+
+# Preview what a run would do without launching a browser
+npx @rosbel/crawl-n-snap https://example.com --crawl --max-pages 50 --dry-run
+
+# Machine-readable output: the manifest is the only thing on stdout
+npx @rosbel/crawl-n-snap https://example.com --json | jq '.summary'
+
+# Plain ASCII markers (e.g. when piping to a file or CI log)
+npx @rosbel/crawl-n-snap https://example.com --no-color
+```
 
 ## Output Structure
 
