@@ -16,5 +16,7 @@
   "waitUntil": "load",
   "delay": 0,
   "fullPage": true,
-  "headless": true
+  "headless": true,
+  "scale": 1,
+  "colorScheme": "light"
 }

@@ -136,6 +136,7 @@ async function main() {
     headless,
     format: format as 'png' | 'jpeg',
     disableAnimations,
+    scale: 1,
   };
 
   await runScreenshotter(url, options);

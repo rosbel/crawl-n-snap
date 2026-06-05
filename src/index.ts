@@ -2,7 +2,7 @@
 // src/index.ts
 
 import {program} from 'commander';
-import playwright, {BrowserType, Page} from 'playwright';
+import playwright, {BrowserType, Page, BrowserContextOptions} from 'playwright';
 import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
@@ -44,6 +44,13 @@ interface CliOptions {
   clip?: ClipRegion;
   waitForSelector?: string;
   disableAnimations: boolean;
+  scale: number;
+  colorScheme?: 'light' | 'dark' | 'no-preference';
+  userAgent?: string;
+  device?: string;
+  headers?: Record<string, string>;
+  basicAuth?: {username: string; password: string};
+  storageState?: string;
 }
 
 interface ClipRegion {
@@ -85,6 +92,13 @@ interface ConfigFile {
   clip?: string;
   waitForSelector?: string;
   disableAnimations?: boolean;
+  scale?: number;
+  colorScheme?: 'light' | 'dark' | 'no-preference' | string;
+  userAgent?: string;
+  device?: string;
+  headers?: string[];
+  basicAuth?: string;
+  storageState?: string;
 }
 
 // Parse a --clip value "x,y,width,height" into a region. x/y must be >= 0 and
@@ -105,6 +119,32 @@ function parseClip(value: string): ClipRegion {
     throw new Error(`Invalid --clip "${value}". x,y must be >= 0 and width,height > 0.`);
   }
   return {x, y, width, height};
+}
+
+// Parse "Name: value" header strings into a header map. Splits on the first
+// colon so values may themselves contain colons.
+function parseHeaders(list: string[]): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const raw of list) {
+    const idx = raw.indexOf(':');
+    if (idx === -1) {
+      throw new Error(`Invalid --header "${raw}". Use "Name: value".`);
+    }
+    const name = raw.slice(0, idx).trim();
+    const value = raw.slice(idx + 1).trim();
+    if (!name) throw new Error(`Invalid --header "${raw}". Header name is empty.`);
+    headers[name] = value;
+  }
+  return headers;
+}
+
+// Parse "user:password" basic-auth credentials (password may contain colons).
+function parseBasicAuth(value: string): {username: string; password: string} {
+  const idx = value.indexOf(':');
+  if (idx === -1) {
+    throw new Error('Invalid --basic-auth. Use "username:password".');
+  }
+  return {username: value.slice(0, idx), password: value.slice(idx + 1)};
 }
 
 // --- Configuration File Support ---
@@ -213,6 +253,14 @@ function mergeConfigWithOptions(
       cliOptions.disableAnimations,
       config.disableAnimations
     ),
+    scale: pick('scale', cliOptions.scale, config.scale),
+    colorScheme: pick('colorScheme', cliOptions.colorScheme, config.colorScheme),
+    userAgent: pick('userAgent', cliOptions.userAgent, config.userAgent),
+    device: pick('device', cliOptions.device, config.device),
+    // Headers merge additively (CLI first, then config).
+    header: [...(cliOptions.header || []), ...(config.headers || [])],
+    basicAuth: pick('basicAuth', cliOptions.basicAuth, config.basicAuth),
+    storageState: pick('storageState', cliOptions.storageState, config.storageState),
   };
 }
 
@@ -479,6 +527,20 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
       `${options.disableAnimations ? '; animations disabled' : ''}` +
       `${options.waitForSelector ? `; wait-for: ${options.waitForSelector}` : ''}`
   );
+  // Emulation/auth banner. Never print secret values (auth, headers, storage).
+  const emulationBits: string[] = [];
+  if (options.device) emulationBits.push(`device: ${options.device}`);
+  if (options.scale && options.scale !== 1) emulationBits.push(`scale: ${options.scale}x`);
+  if (options.colorScheme) emulationBits.push(`color-scheme: ${options.colorScheme}`);
+  if (options.userAgent) emulationBits.push('custom user-agent');
+  if (emulationBits.length) console.log(`Emulation: ${emulationBits.join('; ')}`);
+  const authBits: string[] = [];
+  if (options.basicAuth) authBits.push('basic-auth');
+  if (options.headers && Object.keys(options.headers).length) {
+    authBits.push(`${Object.keys(options.headers).length} custom header(s)`);
+  }
+  if (options.storageState) authBits.push('storage-state');
+  if (authBits.length) console.log(`Auth: ${authBits.join('; ')} (values hidden)`);
   console.log(`Headless: ${options.headless}`);
   console.log(`Crawl Mode: ${options.crawl ? 'Enabled' : 'Disabled'}`);
   if (options.crawl) {
@@ -505,9 +567,40 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
     const browserType: BrowserType = playwright[options.browser];
     console.log(`Launching ${options.browser}...`);
     browser = await browserType.launch({headless: options.headless});
-    const context = await browser.newContext();
+
+    // Build context options for emulation/auth. Start from a device descriptor
+    // (if --device), then layer explicit overrides on top. Only keys the user
+    // actually set are included, so the no-flag path stays a plain context.
+    const deviceDescriptor = options.device ? playwright.devices[options.device] : undefined;
+    const contextOptions: BrowserContextOptions = {...(deviceDescriptor || {})};
+    if (options.scale && options.scale !== 1) contextOptions.deviceScaleFactor = options.scale;
+    if (options.colorScheme) contextOptions.colorScheme = options.colorScheme;
+    if (options.userAgent) contextOptions.userAgent = options.userAgent;
+    if (options.headers && Object.keys(options.headers).length) {
+      contextOptions.extraHTTPHeaders = options.headers;
+    }
+    if (options.basicAuth) contextOptions.httpCredentials = options.basicAuth;
+    if (options.storageState) contextOptions.storageState = options.storageState;
+
+    const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
     console.log('Browser launched successfully.');
+
+    // When emulating a device, the descriptor defines the viewport/DPR/touch, so
+    // capture a single shot labeled by the device instead of iterating -r sizes.
+    const useDeviceViewport = Boolean(deviceDescriptor);
+    type CaptureTarget = {label: string; viewport?: {width: number; height: number}};
+    const captureTargets: CaptureTarget[] = useDeviceViewport
+      ? [
+          {
+            label:
+              options.device!.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'device',
+          },
+        ]
+      : parsedResolutions.map((r) => ({
+          label: `${r.width}x${r.height}`,
+          viewport: {width: r.width, height: r.height},
+        }));
 
     // Track visited URLs to avoid loops (using normalized URLs)
     const visitedUrls = new Set<string>();
@@ -588,26 +681,28 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
           );
         }
 
-        // Process all resolutions with controlled concurrency for better performance
+        // Process all capture targets with controlled concurrency for better performance
         console.log(
-          `\nProcessing ${parsedResolutions.length} resolutions (max ${options.concurrency} concurrent)...`
+          `\nProcessing ${captureTargets.length} ${useDeviceViewport ? 'capture' : 'resolutions'} (max ${options.concurrency} concurrent)...`
         );
 
-        const screenshotTasks = parsedResolutions.map((resolution) => {
-          const {width, height} = resolution;
-          const resolutionString = `${width}x${height}`;
+        const screenshotTasks = captureTargets.map((target) => {
+          const resolutionString = target.label;
 
           return async () => {
             try {
               // Wrap screenshot operation in retry logic
               const result = await retryWithBackoff(async () => {
-                // Create a new page for each resolution to avoid conflicts
+                // Create a new page for each target to avoid conflicts
                 const resolutionPage = await context.newPage();
 
                 try {
                   // Set the viewport BEFORE navigating so responsive layouts and
                   // width-based media queries render at the target resolution.
-                  await resolutionPage.setViewportSize({width, height});
+                  // (Skipped when a --device descriptor already sets the viewport.)
+                  if (target.viewport) {
+                    await resolutionPage.setViewportSize(target.viewport);
+                  }
 
                   // Navigate, racing the early-screenshot timeout against the
                   // hard navigation cap (see navigateWithEarlyTimeout).
@@ -864,9 +959,17 @@ async function runScreenshotter(targetUrl: string, options: CliOptions) {
         clip: options.clip,
         waitForSelector: options.waitForSelector,
         disableAnimations: options.disableAnimations,
+        scale: options.scale,
+        colorScheme: options.colorScheme,
+        userAgent: options.userAgent,
+        device: options.device,
+        // Auth/secret values are deliberately recorded only as booleans/counts.
+        basicAuth: options.basicAuth ? true : undefined,
+        customHeaders: options.headers ? Object.keys(options.headers).length : undefined,
+        storageState: options.storageState ? true : undefined,
         includePatterns: options.includePatterns,
         excludePatterns: options.excludePatterns,
-        resolutions: parsedResolutions.map((r) => `${r.width}x${r.height}`),
+        resolutions: captureTargets.map((t) => t.label),
       },
       pages: perPageResults,
       errors: errorSummaries,
@@ -1092,6 +1195,53 @@ program
   )
   .option('--wait-for-selector <css>', 'Wait for this CSS selector before capturing')
   .option('--disable-animations', 'Freeze CSS animations/transitions for stable screenshots', false)
+  .option(
+    '--scale <n>',
+    'Device scale factor / DPR (e.g. 2 for retina). Default: 1',
+    (value) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error('Scale must be a number >= 1');
+      }
+      return parsed;
+    },
+    1
+  )
+  .option<'light' | 'dark' | 'no-preference'>(
+    '--color-scheme <scheme>',
+    'Emulate prefers-color-scheme (light | dark | no-preference)',
+    (value: string) => {
+      const v = value.toLowerCase();
+      if (v !== 'light' && v !== 'dark' && v !== 'no-preference') {
+        throw new Error('Invalid color-scheme. Choose from: light, dark, no-preference');
+      }
+      return v as 'light' | 'dark' | 'no-preference';
+    }
+  )
+  .option('--user-agent <string>', 'Override the browser User-Agent string')
+  .option(
+    '--device <name>',
+    'Emulate a Playwright device (e.g. "iPhone 13"). Overrides -r and sets UA/DPR/touch.',
+    (value: string) => {
+      if (!playwright.devices[value]) {
+        throw new Error(
+          `Unknown device "${value}". See Playwright device descriptors (e.g. "iPhone 13", "Pixel 7").`
+        );
+      }
+      return value;
+    }
+  )
+  .option(
+    '--header <name:value>',
+    'Extra HTTP header to send (e.g. "Authorization: Bearer x"). Repeatable.',
+    (value: string, previous: string[] = []) => previous.concat([value]),
+    []
+  )
+  .option('--basic-auth <user:password>', 'HTTP Basic auth credentials for gated pages')
+  .option(
+    '--storage-state <file.json>',
+    'Load cookies/localStorage from a Playwright storageState file'
+  )
   .action(
     async (
       url: string,
@@ -1121,6 +1271,13 @@ program
         clip?: string;
         waitForSelector?: string;
         disableAnimations: boolean;
+        scale: number;
+        colorScheme?: 'light' | 'dark' | 'no-preference';
+        userAgent?: string;
+        device?: string;
+        header: string[];
+        basicAuth?: string;
+        storageState?: string;
       }
     ) => {
       try {
@@ -1173,6 +1330,13 @@ program
         if (mergedOptions.format !== 'jpeg' && mergedOptions.quality != null) {
           console.warn('Note: --quality only applies to --format jpeg; ignoring for png.');
         }
+        if (mergedOptions.device && userChoseResolutions) {
+          console.warn('Note: --device sets its own viewport; -r resolutions are ignored.');
+        }
+
+        const headersMap = (mergedOptions.header || []).length
+          ? parseHeaders(mergedOptions.header)
+          : undefined;
 
         // Map merged options to our interface
         const mappedOptions: CliOptions = {
@@ -1198,6 +1362,13 @@ program
           clip: mergedOptions.clip ? parseClip(mergedOptions.clip) : undefined,
           waitForSelector: mergedOptions.waitForSelector,
           disableAnimations: mergedOptions.disableAnimations,
+          scale: mergedOptions.scale,
+          colorScheme: mergedOptions.colorScheme,
+          userAgent: mergedOptions.userAgent,
+          device: mergedOptions.device,
+          headers: headersMap,
+          basicAuth: mergedOptions.basicAuth ? parseBasicAuth(mergedOptions.basicAuth) : undefined,
+          storageState: mergedOptions.storageState,
         };
 
         // Basic URL validation before passing to the main function
@@ -1242,4 +1413,6 @@ export {
   mergeConfigWithOptions,
   GetOptionSource,
   parseClip,
+  parseHeaders,
+  parseBasicAuth,
 };

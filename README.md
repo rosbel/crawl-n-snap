@@ -97,6 +97,13 @@ Options:
   --clip <x,y,w,h>         Capture only a fixed region of the page (e.g. 0,0,800,600)
   --wait-for-selector <css>  Wait for this CSS selector before capturing
   --disable-animations     Freeze CSS animations/transitions for stable screenshots
+  --scale <n>              Device scale factor / DPR (e.g. 2 for retina). Default: 1
+  --color-scheme <scheme>  Emulate prefers-color-scheme (light | dark | no-preference)
+  --user-agent <string>    Override the browser User-Agent string
+  --device <name>          Emulate a Playwright device (e.g. "iPhone 13"); overrides -r
+  --header <name:value>    Extra HTTP header to send. Repeatable.
+  --basic-auth <user:pass> HTTP Basic auth credentials for gated pages
+  --storage-state <file>   Load cookies/localStorage from a Playwright storageState file
   --continue-on-error      Continue processing other URLs/resolutions when errors occur (default: true)
   --fail-fast              Stop processing immediately when any error occurs
   -V, --version            Output the version number
@@ -226,6 +233,26 @@ Notes:
 
 - `--selector` and `--clip` are mutually exclusive, and both take precedence over `--full-page`.
 - `--quality` only applies to `--format jpeg`.
+
+#### Device emulation, dark mode, and authentication
+
+```bash
+# Retina (2x) screenshots
+npx @rosbel/crawl-n-snap https://example.com --scale 2
+
+# Dark mode
+npx @rosbel/crawl-n-snap https://example.com --color-scheme dark
+
+# Emulate a real device (sets viewport, DPR, touch, and UA; -r is ignored)
+npx @rosbel/crawl-n-snap https://example.com --device "iPhone 13"
+
+# Screenshot pages behind HTTP Basic auth, a bearer token, or a saved session
+npx @rosbel/crawl-n-snap https://example.com --basic-auth "user:pass"
+npx @rosbel/crawl-n-snap https://example.com --header "Authorization: Bearer <token>"
+npx @rosbel/crawl-n-snap https://example.com --storage-state ./auth.json
+```
+
+Secrets (`--basic-auth`, `--header`, `--storage-state`) are never printed to the console or written to `run.json` (only a boolean/count is recorded).
 
 ## Output Structure
 
