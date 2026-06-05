@@ -3,6 +3,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import {parseResolution} from './utils';
+// The real merge implementation, so these tests exercise production code rather
+// than a drifting copy.
+import {mergeConfigWithOptions, GetOptionSource} from './index';
 
 // Mock fs module
 vi.mock('fs/promises');
@@ -62,42 +65,6 @@ async function loadConfigFile(): Promise<ConfigFile | null> {
   }
 
   return null;
-}
-
-// Function to merge config file with CLI options (CLI takes precedence)
-function mergeConfigWithOptions(config: ConfigFile | null, cliOptions: any): any {
-  if (!config) return cliOptions;
-
-  // Merge exclude patterns from both CLI and config
-  const excludePatterns = [...(cliOptions.excludePattern || []), ...(config.excludePatterns || [])];
-
-  return {
-    resolution:
-      cliOptions.resolution.length === 1 &&
-      cliOptions.resolution[0].width === 1920 &&
-      cliOptions.resolution[0].height === 1080
-        ? config.resolutions?.map(parseResolution) || cliOptions.resolution // Use config if CLI has default
-        : cliOptions.resolution, // Use CLI if custom resolutions provided
-    output: cliOptions.output !== '.' ? cliOptions.output : config.output || cliOptions.output,
-    browser:
-      cliOptions.browser !== 'chromium' ? cliOptions.browser : config.browser || cliOptions.browser,
-    crawl: cliOptions.crawl || config.crawl || false,
-    maxPages:
-      cliOptions.maxPages !== 50 ? cliOptions.maxPages : config.maxPages || cliOptions.maxPages,
-    timeout:
-      cliOptions.timeout !== 5000 ? cliOptions.timeout : config.timeout || cliOptions.timeout,
-    concurrency:
-      cliOptions.concurrency !== 3
-        ? cliOptions.concurrency
-        : config.concurrency || cliOptions.concurrency,
-    retries: cliOptions.retries !== 2 ? cliOptions.retries : (config.retries ?? cliOptions.retries),
-    excludePattern: excludePatterns,
-    continueOnError: cliOptions.failFast
-      ? false
-      : (cliOptions.continueOnError ?? config.continueOnError ?? true),
-    desktop: cliOptions.desktop || config.desktop || false,
-    mobile: cliOptions.mobile || config.mobile || false,
-  };
 }
 
 describe('Configuration File Loading', () => {
@@ -196,121 +163,129 @@ describe('Configuration File Loading', () => {
 });
 
 describe('Configuration Merging', () => {
-  it('uses CLI options when no config file is provided', () => {
-    const cliOptions = {
-      resolution: [parseResolution('800x600')],
-      output: './custom',
-      browser: 'firefox',
-      crawl: true,
-      maxPages: 20,
-      timeout: 3000,
-      concurrency: 2,
-      retries: 1,
-      continueOnError: false,
-      excludePattern: ['*/admin/*'],
-      desktop: false,
-      mobile: true,
-      failFast: false,
-    };
-
-    const result = mergeConfigWithOptions(null, cliOptions);
-    expect(result).toEqual({
-      ...cliOptions,
-      excludePattern: ['*/admin/*'],
-    });
+  // A fully-populated CLI options object at its default values. Individual
+  // tests override fields and mark which ones the user "typed" via sources.
+  const baseCli = () => ({
+    resolution: [] as ReturnType<typeof parseResolution>[],
+    output: '.',
+    browser: 'chromium',
+    crawl: false,
+    maxPages: 50,
+    timeout: 5000,
+    navTimeout: 30000,
+    concurrency: 3,
+    retries: 2,
+    excludePattern: [] as string[],
+    includePattern: [] as string[],
+    continueOnError: true,
+    failFast: false,
+    desktop: false,
+    mobile: false,
+    waitUntil: 'load',
+    delay: 0,
+    fullPage: true,
+    headless: true,
   });
 
-  it('merges config file with CLI options (CLI takes precedence)', () => {
-    const config: ConfigFile = {
-      resolutions: ['1366x768', '390x844'],
-      browser: 'webkit',
-      output: './config-output',
-      crawl: false,
-      maxPages: 30,
-      timeout: 7000,
-      concurrency: 4,
-      retries: 3,
-      continueOnError: false,
-      excludePatterns: ['*/config-exclude/*'],
-    };
+  // Build a source lookup where the named options came from the CLI and
+  // everything else is at its default.
+  const cliSources =
+    (...cliNames: string[]): GetOptionSource =>
+    (name) =>
+      cliNames.includes(name) ? 'cli' : 'default';
 
-    const cliOptions = {
-      resolution: [parseResolution('800x600')], // Custom resolution - should override config
-      output: './cli-output', // Non-default - should override config
-      browser: 'chromium', // Default value - should use config
-      crawl: true, // Explicit true - should override config false
-      maxPages: 50, // Default value - should use config
-      timeout: 5000, // Default value - should use config
-      concurrency: 3, // Default value - should use config
-      retries: 2, // Default value - should use config
-      continueOnError: undefined, // Default value - should use config
-      excludePattern: ['*/cli-exclude/*'],
-      desktop: false,
-      mobile: false,
-      failFast: false,
-    };
-
-    const result = mergeConfigWithOptions(config, cliOptions);
-
-    expect(result.resolution).toEqual([parseResolution('800x600')]);
-    expect(result.output).toBe('./cli-output');
-    expect(result.browser).toBe('webkit'); // From config
-    expect(result.crawl).toBe(true); // From CLI (explicit true)
-    expect(result.maxPages).toBe(30); // From config (CLI has default)
-    expect(result.timeout).toBe(7000); // From config (CLI has default)
-    expect(result.concurrency).toBe(4); // From config (CLI has default)
-    expect(result.retries).toBe(3); // From config (CLI has default)
-    expect(result.continueOnError).toBe(false); // From config (CLI has undefined/default)
-    expect(result.excludePattern).toEqual(['*/cli-exclude/*', '*/config-exclude/*']); // Merged
+  it('returns CLI options unchanged when there is no config file', () => {
+    const cli = baseCli();
+    expect(mergeConfigWithOptions(null, cli)).toBe(cli);
   });
 
-  it('handles failFast option correctly', () => {
-    const config: ConfigFile = {
-      continueOnError: true,
-    };
+  it('fills unset CLI options from the config file', () => {
+    const result = mergeConfigWithOptions(
+      {browser: 'webkit', maxPages: 30, timeout: 7000, output: './from-config'},
+      baseCli(),
+      cliSources() // user typed nothing
+    );
+    expect(result.browser).toBe('webkit');
+    expect(result.maxPages).toBe(30);
+    expect(result.timeout).toBe(7000);
+    expect(result.output).toBe('./from-config');
+  });
 
-    const cliOptionsWithFailFast = {
-      resolution: [parseResolution('1920x1080')],
-      output: '.',
-      browser: 'chromium',
-      crawl: false,
-      maxPages: 50,
-      timeout: 5000,
-      concurrency: 3,
-      retries: 2,
-      continueOnError: true,
-      excludePattern: [],
-      desktop: false,
-      mobile: false,
-      failFast: true, // This should override continueOnError to false
-    };
+  it('lets an explicit CLI flag win over the config — even at a default-looking value', () => {
+    const result = mergeConfigWithOptions(
+      {timeout: 7000, browser: 'firefox'},
+      {...baseCli(), timeout: 5000, browser: 'chromium'},
+      cliSources('timeout', 'browser') // user explicitly passed both
+    );
+    // Previously the sentinel "=== 5000 means default" check let config win here.
+    expect(result.timeout).toBe(5000);
+    expect(result.browser).toBe('chromium');
+  });
 
-    const result = mergeConfigWithOptions(config, cliOptionsWithFailFast);
+  it('honors config fullPage/headless/continueOnError when the user passed no flag', () => {
+    const result = mergeConfigWithOptions(
+      {fullPage: false, headless: false, continueOnError: false},
+      baseCli(),
+      cliSources()
+    );
+    // These were previously dead because the CLI always supplied a boolean.
+    expect(result.fullPage).toBe(false);
+    expect(result.headless).toBe(false);
     expect(result.continueOnError).toBe(false);
   });
 
-  it('uses config resolutions when CLI has default resolution', () => {
-    const config: ConfigFile = {
-      resolutions: ['800x600', '1366x768'],
-    };
+  it('honors an explicit --no-full-page over a config fullPage:true', () => {
+    const result = mergeConfigWithOptions(
+      {fullPage: true},
+      {...baseCli(), fullPage: false},
+      cliSources('fullPage')
+    );
+    expect(result.fullPage).toBe(false);
+  });
 
-    const cliOptionsWithDefault = {
-      resolution: [parseResolution('1920x1080')], // Default resolution
-      output: '.',
-      browser: 'chromium',
-      crawl: false,
-      maxPages: 50,
-      timeout: 5000,
-      concurrency: 3,
-      retries: 2,
-      continueOnError: true,
-      excludePattern: [],
-      desktop: false,
-      mobile: false,
-      failFast: false,
-    };
+  it('forces continueOnError false when --fail-fast is set, regardless of config', () => {
+    const result = mergeConfigWithOptions(
+      {continueOnError: true},
+      {...baseCli(), failFast: true},
+      cliSources('failFast')
+    );
+    expect(result.continueOnError).toBe(false);
+  });
 
-    const result = mergeConfigWithOptions(config, cliOptionsWithDefault);
+  it('uses config resolutions when the user did not pass -r', () => {
+    const result = mergeConfigWithOptions(
+      {resolutions: ['800x600', '1366x768']},
+      baseCli(),
+      cliSources()
+    );
     expect(result.resolution).toEqual([parseResolution('800x600'), parseResolution('1366x768')]);
+  });
+
+  it('uses CLI -r resolutions over config resolutions', () => {
+    const result = mergeConfigWithOptions(
+      {resolutions: ['800x600']},
+      {...baseCli(), resolution: [parseResolution('1280x720')]},
+      cliSources('resolution')
+    );
+    expect(result.resolution).toEqual([parseResolution('1280x720')]);
+  });
+
+  it('merges exclude and include patterns from both CLI and config', () => {
+    const result = mergeConfigWithOptions(
+      {excludePatterns: ['*/config-x/*'], includePatterns: ['*/config-i/*']},
+      {...baseCli(), excludePattern: ['*/cli-x/*'], includePattern: ['*/cli-i/*']},
+      cliSources('excludePattern', 'includePattern')
+    );
+    expect(result.excludePattern).toEqual(['*/cli-x/*', '*/config-x/*']);
+    expect(result.includePattern).toEqual(['*/cli-i/*', '*/config-i/*']);
+  });
+
+  it('ignores an invalid waitUntil from config and keeps the CLI value', () => {
+    const result = mergeConfigWithOptions(
+      {waitUntil: 'not-a-state'},
+      {...baseCli(), waitUntil: 'load'},
+      cliSources()
+    );
+    expect(result.waitUntil).toBe('load');
   });
 });

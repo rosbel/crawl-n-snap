@@ -5,6 +5,7 @@
   "crawl": false,
   "maxPages": 50,
   "timeout": 5000,
+  "navTimeout": 30000,
   "concurrency": 3,
   "retries": 2,
   "continueOnError": true,
@@ -12,7 +13,8 @@
   "mobile": false,
   "excludePatterns": ["*/admin/*", "*/login/*"],
   "includePatterns": ["*/products/*"],
-  "waitUntil": "networkidle",
+  "waitUntil": "load",
   "delay": 0,
-  "fullPage": true
+  "fullPage": true,
+  "headless": true
 }
