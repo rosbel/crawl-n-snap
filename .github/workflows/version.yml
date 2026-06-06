@@ -1,0 +1,60 @@
+name: Version
+
+# When a PR targeting main carries changesets, apply the version bump in CI and
+# commit it back to the PR branch. This keeps versioning part of the pull request
+# (reviewable in the diff) instead of something a maintainer runs locally, and it
+# avoids both blocked paths: it never opens a PR and never pushes to main.
+on:
+  pull_request:
+    branches: ['main']
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# One versioning pass per PR branch at a time; newer pushes supersede older runs.
+concurrency:
+  group: version-${{ github.head_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # commit the version bump back to the PR branch
+
+jobs:
+  version:
+    # GITHUB_TOKEN can't push to a fork's branch, so only run for same-repo PRs.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Apply version bump from changesets
+        env:
+          HUSKY: '0' # don't trigger the local pre-commit hooks in CI
+        run: |
+          set -euo pipefail
+          # No-op when there are no pending changesets.
+          pnpm changeset version
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No pending changesets — nothing to version."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit --no-verify -m "chore: version packages"
+          git push origin "HEAD:${{ github.head_ref }}"

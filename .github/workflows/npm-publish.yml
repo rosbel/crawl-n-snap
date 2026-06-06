@@ -1,5 +1,9 @@
 name: Publish to npm
 
+# Publishing happens on push to main. The version bump is already applied by the
+# Version workflow inside the merged PR, so by the time we get here package.json
+# holds the release version. `changeset publish` only publishes versions that are
+# not already on the registry, so ordinary pushes to main are safe no-ops.
 on:
   push:
     branches: ['main']
@@ -9,22 +13,24 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write # push the version commit / git tag
-  pull-requests: write # open the "Version Packages" PR
+  contents: write # push the git tag created by `changeset publish`
+  id-token: write # mint the OIDC token npm uses to attach build provenance
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
@@ -39,20 +45,16 @@ jobs:
       - name: Run tests
         run: pnpm test
 
-      # When there are pending changesets, this opens (or updates) a
-      # "Version Packages" PR that bumps the version and updates CHANGELOG.md.
-      # When that PR is merged (version changed, no changesets left), it
-      # publishes to npm via `pnpm run release` (changeset publish), which
-      # skips any version already on the registry — so pushes to main never
-      # try to republish an existing version (the old cause of the failures).
-      - name: Create Release PR or publish to npm
-        uses: changesets/action@v1
-        with:
-          version: pnpm run version
-          publish: pnpm run release
-          title: 'chore: version packages'
-          commit: 'chore: version packages'
+      # Publishes any package version not yet on npm, with signed provenance.
+      # No-op when the current version is already published.
+      - name: Publish to npm
+        run: pnpm run release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      # `changeset publish` creates a git tag for each newly published version;
+      # push those tags (no-op when nothing was published). Tags aren't covered
+      # by branch protection, so this needs no special permissions.
+      - name: Push release tags
+        run: git push --tags
